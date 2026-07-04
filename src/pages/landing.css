@@ -1,0 +1,40 @@
+/* Handful of rules inline style objects can't express (hover, transitions,
+   media queries). Everything else on the landing/content pages stays inline
+   style objects, matching the rest of the app, so this file stays small. */
+
+.np-btn-primary {
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.np-btn-primary:hover {
+  background-color: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+
+.np-features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 860px) {
+  .np-features-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .np-features-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.np-feature-card {
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.np-feature-card:hover {
+  transform: translateY(-2px) scale(1.02);
+  border-color: var(--accent-border);
+  box-shadow: 0 8px 28px -8px var(--accent-bg), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
