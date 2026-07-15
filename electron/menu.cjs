@@ -2,10 +2,11 @@ const { Menu, app, dialog } = require("electron");
 
 const isMac = process.platform === "darwin";
 
-// Native OS menu essentials only (open/quit, standard edit/view roles) —
-// the app's own File/Edit/View/Help menus live inside the web UI
-// (TopAppBar.jsx) and are unrelated to this. Kept minimal per the product's
-// own "minimal dependencies, no feature bloat" philosophy.
+// Native OS menu essentials only (open/quit, standard edit/view roles).
+// The app's own File/Edit/View/Help menu bar (TopAppBar.jsx) is the one
+// users see — this native menu stays registered but hidden (see
+// autoHideMenuBar in main.cjs) purely so its keyboard accelerators
+// (Ctrl+Z, Ctrl+R, F11, ...) keep working.
 function buildMenu(win) {
   const template = [
     ...(isMac ? [{ role: "appMenu" }] : []),

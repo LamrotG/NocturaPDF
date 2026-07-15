@@ -24,6 +24,11 @@ function createWindow() {
     minHeight: 480,
     backgroundColor: "#16171d",
     icon: path.join(__dirname, "..", "build", "icon.ico"),
+    // The app renders its own File/Edit/View/Help bar in TopAppBar.jsx, so
+    // the native menu (still built below for keyboard accelerators like
+    // Ctrl+Z / Ctrl+R / F11) stays registered but hidden rather than drawn
+    // as a second bar. Alt reveals it if needed.
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "ppreload.cjs"),
       contextIsolation: true,

@@ -45,9 +45,10 @@ function MenuButton({ label, items }) {
   );
 }
 
-// Left = branding + File/Edit/View/Help menus. Center = tab strip (documents
-// only, never tools). Right = UI theme toggle + fullscreen — chrome-level
-// controls, not document state.
+// Left = File/Edit/View/Help menus (branding lives in the OS window
+// title bar / browser tab, not duplicated here). Center = tab strip
+// (documents only, never tools). Right = UI theme toggle + fullscreen —
+// chrome-level controls, not document state.
 export default function TopAppBar({
   tabs,
   activeTabId,
@@ -85,9 +86,6 @@ export default function TopAppBar({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-        <img src="/favicon.svg" alt="" width={20} height={20} />
-        <span style={{ fontWeight: 700, fontSize: 14, marginRight: 8 }}>NocturaPDF</span>
-
         <MenuButton
           label="File"
           items={[
