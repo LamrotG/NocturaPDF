@@ -1,14 +1,13 @@
 const path = require("node:path");
-const { app, BrowserWindow } = require("electron");
+const fs = require("node:fs/promises");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { buildMenu } = require("./menu.cjs");
 
 const DEV_SERVER_URL = "http://localhost:5173";
 const DEV_RETRY_DELAY_MS = 500;
 const DEV_RETRY_ATTEMPTS = 20;
 
-// The Vite dev server may still be starting when `npm run electron` is
-// launched alongside it, so retry briefly instead of adding a wait-on-style
-// dependency just for local development convenience.
+
 function loadDevServerWithRetry(win, attemptsLeft) {
   win.loadURL(DEV_SERVER_URL).catch(() => {
     if (attemptsLeft <= 0) return;
@@ -45,6 +44,33 @@ function createWindow() {
     loadDevServerWithRetry(win, DEV_RETRY_ATTEMPTS);
   }
 }
+
+// IPC handlers for file operations
+ipcMain.handle("read-file", async (event, filePath) => {
+  if (!filePath) {
+    return { success: false, error: "No file path provided" };
+  }
+  try {
+    const data = await fs.readFile(filePath);
+    // Convert to array format for transferable
+    return { success: true, data: Array.from(data) };
+  } catch (error) {
+    console.error("Failed to read file:", error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle("open-file-explorer", async (event, filePath) => {
+  if (!filePath) return { success: false, error: "No file path provided" };
+  try {
+    // Show the file in the file explorer and select it
+    shell.showItemInFolder(filePath);
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to open file explorer:", error);
+    return { success: false, error: error.message };
+  }
+});
 
 app.whenReady().then(() => {
   createWindow();

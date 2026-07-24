@@ -5,6 +5,7 @@ import { AppStoreProvider, useAppStore } from "./store/appstore.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import { useRoute } from "./hooks/useRoute.js";
 import { getSidebarCollapsed, setSidebarCollapsed as persistSidebarCollapsed } from "./services/settingService.js";
+import { addRecentFile, getRecentFiles, removeRecentFile } from "./services/recentFilesService.js";
 import { themeToCssVars } from "./utils/themeCssVars.js";
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./utils/constants.js";
 import TopAppBar from "./components/layout/TopAppBar.jsx";
@@ -24,6 +25,7 @@ function Shell() {
 
   const rootRef = useRef(null);
   const fileInputRef = useRef(null);
+  const pdfDocRef = useRef(null);
 
   const [zoomFactor, setZoomFactor] = useState(1);
   const [fitMode, setFitMode] = useState("width");
@@ -36,6 +38,7 @@ function Shell() {
   const [focusMode, setFocusMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
 
   // Each tab reloads its own pdf.js document independently (inactive tabs are
   // fully unmounted, see PdfViewer's `key`), so reset derived reader state
@@ -69,6 +72,108 @@ function Shell() {
     if (file) handleOpenFile(file);
     e.target.value = "";
   };
+
+  // Generate a thumbnail from the first page of a PDF
+  const generateThumbnail = useCallback(async (pdfDocument) => {
+    if (!pdfDocument || pdfDocument.numPages < 1) {
+      return "";
+    }
+
+    try {
+      const page = await pdfDocument.getPage(1);
+      const scale = 0.2; // Small thumbnail
+      const viewport = page.getViewport({ scale });
+
+      // Create canvas for rendering
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      // Render page to canvas
+      const context = canvas.getContext("2d");
+      const renderTask = page.render({
+        canvasContext: context,
+        viewport: viewport,
+      });
+
+      await renderTask.promise;
+
+      // Convert to base64 data URL
+      return canvas.toDataURL("image/jpeg", 0.7);
+    } catch (e) {
+      console.warn("Failed to generate PDF thumbnail:", e);
+      return "";
+    }
+  }, []);
+
+  // Track recently opened file when PDF is loaded
+  const handleDocumentLoad = useCallback(
+    async (pdfDocument) => {
+      setPdfDoc(pdfDocument);
+      
+      // Generate and save thumbnail if we have an active tab
+      if (activeTab && pdfDocument) {
+        try {
+          const thumbnail = await generateThumbnail(pdfDocument);
+          // Extract file path if available (File API doesn't expose path, but we can try)
+          let filePath = null;
+          if (activeTab.file && activeTab.file.path) {
+            filePath = activeTab.file.path;
+          } else if (activeTab.file && activeTab.file.webkitRelativePath) {
+            // Try webkitRelativePath as fallback
+            filePath = activeTab.file.webkitRelativePath;
+          }
+          const updated = addRecentFile(activeTab.file, thumbnail, filePath);
+          setRecentFiles(updated);
+        } catch (e) {
+          console.warn("Error tracking recent file:", e);
+        }
+      }
+    },
+    [activeTab, generateThumbnail]
+  );
+
+  // Handle opening a file from recent files
+  const handleOpenRecentFile = useCallback(
+    async (recentFile) => {
+      // If in Electron and we have a file path, try to open it directly
+      if (typeof window !== "undefined" && window.nocturaPdf?.isElectron && recentFile.filePath) {
+        try {
+          // Read file from disk
+          const result = await window.nocturaPdf.readFile(recentFile.filePath);
+          if (result.success) {
+            // Convert array back to Uint8Array
+            const uint8Array = new Uint8Array(result.data);
+            // Create a pseudo-File object for the viewer
+            const fileObj = new File([uint8Array], recentFile.name, { type: "application/pdf" });
+            // Store the path for future reference
+            fileObj.path = recentFile.filePath;
+            openTab(fileObj, recentFile.name);
+            return;
+          }
+        } catch (error) {
+          console.warn("Failed to open file from recent files:", error);
+          // Fall back to opening in file explorer
+          try {
+            await window.nocturaPdf.openFileExplorer(recentFile.filePath);
+            return;
+          } catch (e) {
+            console.warn("Failed to open file explorer:", e);
+          }
+        }
+      }
+      
+      // Fallback: open file picker
+      fileInputRef.current?.click();
+    },
+    [openTab]
+  );
+
+  // Handle removing a file from recent files list
+  const handleRemoveRecentFile = useCallback((fileId) => {
+    const updated = removeRecentFile(fileId);
+    setRecentFiles(updated);
+  }, []);
 
   const handleJumpToPage = useCallback((page) => {
     setCurrentPage(page);
@@ -238,11 +343,15 @@ function Shell() {
               onZoomChange={setZoomFactor}
               onCurrentPageChange={setCurrentPage}
               onNumPagesChange={setNumPages}
-              onDocumentLoad={setPdfDoc}
+              onDocumentLoad={handleDocumentLoad}
               scrollRequest={scrollRequest}
             />
           ) : (
-            <EmptyState onOpenFile={() => fileInputRef.current?.click()} />
+            <EmptyState 
+              onOpenFile={() => fileInputRef.current?.click()}
+              recentFiles={recentFiles}
+              onRemoveRecentFile={handleRemoveRecentFile}
+            />
           )}
         </div>
       </div>
