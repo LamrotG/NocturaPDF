@@ -67,9 +67,43 @@ function Shell() {
 
   const handleOpenFile = useCallback((file) => openTab(file, file.name), [openTab]);
 
+  // Handle opening file dialog - use native dialog for Electron, fallback to file input for browser
+  const handleOpenFileDialog = useCallback(async () => {
+    // For Electron, use native file dialog
+    if (typeof window !== "undefined" && window.nocturaPdf?.isElectron) {
+      try {
+        const result = await window.nocturaPdf.openFileDialog();
+        if (result.success && result.files && result.files.length > 0) {
+          // Open all selected files
+          result.files.forEach((fileData) => {
+            const uint8Array = new Uint8Array(fileData.data);
+            const fileObj = new File([uint8Array], fileData.name, {
+              type: "application/pdf",
+            });
+            // Store the file path for future reference (e.g., recent files)
+            fileObj.path = fileData.filePath;
+            handleOpenFile(fileObj);
+          });
+        }
+        return;
+      } catch (error) {
+        console.error("Error opening file dialog:", error);
+        // Fall through to file input as fallback
+      }
+    }
+
+    // For browser or as fallback, use HTML file input
+    fileInputRef.current?.click();
+  }, [handleOpenFile]);
+
   const handleFileInputChange = (e) => {
-    const file = e.target.files?.[0];
-    if (file) handleOpenFile(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      // Open all selected files in their respective tabs
+      Array.from(files).forEach((file) => {
+        handleOpenFile(file);
+      });
+    }
     e.target.value = "";
   };
 
@@ -164,9 +198,9 @@ function Shell() {
       }
       
       // Fallback: open file picker
-      fileInputRef.current?.click();
+      handleOpenFileDialog();
     },
-    [openTab]
+    [handleOpenFileDialog]
   );
 
   // Handle removing a file from recent files list
@@ -245,6 +279,7 @@ function Shell() {
         ref={fileInputRef}
         type="file"
         accept="application/pdf"
+        multiple
         onChange={handleFileInputChange}
         style={{ display: "none" }}
       />
@@ -256,7 +291,7 @@ function Shell() {
             activeTabId={activeTabId}
             onSelectTab={setActiveTab}
             onCloseTab={closeTab}
-            onAddTab={() => fileInputRef.current?.click()}
+            onAddTab={handleOpenFileDialog}
             uiThemeId={uiThemeId}
             setUiThemeId={setUiThemeId}
             isFullscreen={isFullscreen}
@@ -348,7 +383,7 @@ function Shell() {
             />
           ) : (
             <EmptyState 
-              onOpenFile={() => fileInputRef.current?.click()}
+              onOpenFile={handleOpenFileDialog}
               recentFiles={recentFiles}
               onRemoveRecentFile={handleRemoveRecentFile}
             />

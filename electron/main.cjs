@@ -1,6 +1,6 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
 const { buildMenu } = require("./menu.cjs");
 
 const DEV_SERVER_URL = "http://localhost:5173";
@@ -68,6 +68,56 @@ ipcMain.handle("open-file-explorer", async (event, filePath) => {
     return { success: true };
   } catch (error) {
     console.error("Failed to open file explorer:", error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle("open-file-dialog", async (event) => {
+  try {
+    const mainWindow = BrowserWindow.getFocusedWindow();
+    if (!mainWindow) {
+      return { success: false, error: "No window focused" };
+    }
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "PDF Documents", extensions: ["pdf"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    // Read all selected files
+    const filesData = await Promise.all(
+      result.filePaths.map(async (filePath) => {
+        try {
+          const data = await fs.readFile(filePath);
+          return {
+            filePath,
+            name: path.basename(filePath),
+            data: Array.from(data),
+          };
+        } catch (error) {
+          console.error(`Failed to read file ${filePath}:`, error);
+          return null;
+        }
+      })
+    );
+
+    // Filter out any failed reads
+    const validFiles = filesData.filter((f) => f !== null);
+
+    if (validFiles.length === 0) {
+      return { success: false, error: "Failed to read selected files" };
+    }
+
+    return { success: true, files: validFiles };
+  } catch (error) {
+    console.error("Failed to open file dialog:", error);
     return { success: false, error: error.message };
   }
 });
