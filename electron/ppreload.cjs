@@ -12,4 +12,5 @@ contextBridge.exposeInMainWorld("nocturaPdf", {
   openFileDialog: () => ipcRenderer.invoke("open-file-dialog"),
   readFile: (filePath) => ipcRenderer.invoke("read-file", filePath),
   openFileExplorer: (filePath) => ipcRenderer.invoke("open-file-explorer", filePath),
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
 });

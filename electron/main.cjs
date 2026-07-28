@@ -72,6 +72,16 @@ ipcMain.handle("open-file-explorer", async (event, filePath) => {
   }
 });
 
+ipcMain.handle("open-external", async (event, url) => {
+  try {
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to open external URL:", error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle("open-file-dialog", async (event) => {
   try {
     const mainWindow = BrowserWindow.getFocusedWindow();

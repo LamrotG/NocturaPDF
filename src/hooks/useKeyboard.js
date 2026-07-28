@@ -16,6 +16,11 @@ export function useKeyboard({
   onZoomOut,
   onToggleFocusMode,
   onOpenSearch,
+  onOpenFile,
+  onCloseTab,
+  onSave,
+  onPrint,
+  onToggleFullscreen,
   onEscape,
 }) {
   useEffect(() => {
@@ -39,6 +44,21 @@ export function useKeyboard({
       } else if (ctrlOrCmd && e.key.toLowerCase() === "f") {
         e.preventDefault();
         onOpenSearch?.();
+      } else if (ctrlOrCmd && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        onOpenFile?.();
+      } else if (ctrlOrCmd && e.key.toLowerCase() === "w") {
+        e.preventDefault();
+        onCloseTab?.();
+      } else if (ctrlOrCmd && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        onSave?.();
+      } else if (ctrlOrCmd && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        onPrint?.();
+      } else if (e.key === "F11") {
+        e.preventDefault();
+        onToggleFullscreen?.();
       } else if (!ctrlOrCmd && e.key.toLowerCase() === "f") {
         e.preventDefault();
         onToggleFocusMode?.();
@@ -55,5 +75,5 @@ export function useKeyboard({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onPrevPage, onNextPage, onZoomIn, onZoomOut, onToggleFocusMode, onOpenSearch, onEscape]);
+  }, [onPrevPage, onNextPage, onZoomIn, onZoomOut, onToggleFocusMode, onOpenSearch, onOpenFile, onCloseTab, onSave, onPrint, onToggleFullscreen, onEscape]);
 }
