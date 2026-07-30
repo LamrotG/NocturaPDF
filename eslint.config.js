@@ -38,5 +38,8 @@ export default defineConfig([
       globals: globals.node,
       sourceType: 'commonjs',
     },
+    rules: {
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
+    },
   },
 ])

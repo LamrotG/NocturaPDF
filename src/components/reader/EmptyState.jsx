@@ -7,7 +7,6 @@ import RecentFileCard from "./RecentFileCard.jsx";
 export default function EmptyState({ onOpenFile, recentFiles, onRemoveRecentFile }) {
   // Only show recent files if there are at least 5
   const showRecentFiles = recentFiles && recentFiles.length >= 5;
-  const hasRecentFiles = recentFiles && recentFiles.length > 0;
 
   // If no recent files, center the button
   if (!showRecentFiles) {

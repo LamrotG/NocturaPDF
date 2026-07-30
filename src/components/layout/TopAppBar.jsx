@@ -1,49 +1,16 @@
-import React, { useState } from "react";
-import Button from "../common/Button.jsx";
+import React from "react";
 import IconButton from "../common/IconButton.jsx";
-import Popover from "../common/Popover.jsx";
+import AppMenu from "./AppMenu.jsx";
 import TabBar from "./TabBar.jsx";
 import { MaximizeIcon, MinimizeIcon, MonitorIcon, MoonIcon, SunIcon } from "../common/icons.jsx";
 
 const UI_THEME_ICONS = { light: SunIcon, dark: MoonIcon, system: MonitorIcon };
 
-function MenuButton({ label, items }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ position: "relative" }}>
-      <Button variant="ghost" active={open} onClick={() => setOpen((v) => !v)}>
-        {label}
-      </Button>
-      <Popover open={open} onClose={() => setOpen(false)}>
-        {items.map((item) => (
-          <button
-            key={item.label}
-            onClick={() => {
-              item.onClick?.();
-              setOpen(false);
-            }}
-            disabled={item.disabled}
-            style={{
-              display: "block",
-              width: "100%",
-              textAlign: "left",
-              padding: "6px 10px",
-              fontSize: 13,
-              border: "none",
-              borderRadius: 6,
-              background: "none",
-              color: item.disabled ? "var(--text)" : "var(--text-h)",
-              opacity: item.disabled ? 0.45 : 1,
-              cursor: item.disabled ? "default" : "pointer",
-            }}
-          >
-            {item.label}
-          </button>
-        ))}
-      </Popover>
-    </div>
-  );
-}
+const isMac =
+  typeof navigator !== "undefined" && navigator.platform.toLowerCase().includes("mac");
+const MOD = isMac ? "⌘" : "Ctrl";
+const SHIFT = "Shift";
+const ALT = isMac ? "⌥" : "Alt";
 
 // Left = File/Edit/View/Help menus (branding lives in the OS window
 // title bar / browser tab, not duplicated here). Center = tab strip
@@ -59,6 +26,36 @@ export default function TopAppBar({
   setUiThemeId,
   isFullscreen,
   onToggleFullscreen,
+  // Menu actions
+  hasDoc,
+  hasFilePath,
+  isElectron,
+  recentFiles,
+  onOpenRecent,
+  onClearRecent,
+  onShowInFolder,
+  onSave,
+  onSaveAs,
+  onPrint,
+  onProperties,
+  onFind,
+  onFindNext,
+  onFindPrevious,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset,
+  onFitWidth,
+  onFitPage,
+  onActualSize,
+  onRotateCW,
+  onRotateCCW,
+  onToggleSidebar,
+  onTogglePresentation,
+  onVisitWebsite,
+  onUserManual,
+  onKeyboardShortcuts,
+  onCheckForUpdates,
+  onAbout,
 }) {
   const ThemeIcon = UI_THEME_ICONS[uiThemeId] || UI_THEME_ICONS.system;
 
@@ -67,6 +64,76 @@ export default function TopAppBar({
     const next = order[(order.indexOf(uiThemeId) + 1) % order.length];
     setUiThemeId(next);
   };
+
+  const fileItems = [
+    { label: "Open…", shortcut: `${MOD}+O`, onClick: onAddTab },
+    { label: "Close", shortcut: `${MOD}+W`, onClick: () => activeTabId && onCloseTab(activeTabId), disabled: !hasDoc },
+    { separator: true },
+    {
+      label: "Open Recent",
+      submenu: (recentFiles && recentFiles.length > 0)
+        ? [
+            ...recentFiles.map((f) => ({
+              label: f.name,
+              onClick: () => onOpenRecent?.(f),
+            })),
+            { separator: true },
+            { label: "Clear Recent Files", onClick: onClearRecent },
+          ]
+        : [{ label: "No Recent Files", disabled: true }],
+    },
+    { separator: true },
+    { label: "Show in Folder", onClick: onShowInFolder, disabled: !hasFilePath || !isElectron },
+    { separator: true },
+    { label: "Save", shortcut: `${MOD}+S`, onClick: onSave, disabled: !hasDoc || !isElectron },
+    { label: "Save As…", shortcut: `${MOD}+${SHIFT}+S`, onClick: onSaveAs, disabled: !hasDoc || !isElectron },
+    { separator: true },
+    { label: "Print…", shortcut: `${MOD}+P`, onClick: onPrint, disabled: !hasDoc },
+    { separator: true },
+    { label: "Properties", shortcut: `${ALT}+Enter`, onClick: onProperties, disabled: !hasDoc },
+  ];
+
+  const editItems = [
+    { label: "Undo", shortcut: `${MOD}+Z`, onClick: () => document.execCommand("undo"), disabled: !hasDoc },
+    { label: "Redo", shortcut: `${MOD}+Y`, onClick: () => document.execCommand("redo"), disabled: !hasDoc },
+    { separator: true },
+    { label: "Cut", shortcut: `${MOD}+X`, onClick: () => document.execCommand("cut"), disabled: !hasDoc },
+    { label: "Copy", shortcut: `${MOD}+C`, onClick: () => document.execCommand("copy"), disabled: !hasDoc },
+    { label: "Paste", shortcut: `${MOD}+V`, onClick: () => document.execCommand("paste"), disabled: !hasDoc },
+    { label: "Select All", shortcut: `${MOD}+A`, onClick: () => document.execCommand("selectAll"), disabled: !hasDoc },
+    { separator: true },
+    { label: "Find", shortcut: `${MOD}+F`, onClick: onFind, disabled: !hasDoc },
+    { label: "Find Next", shortcut: "F3", onClick: onFindNext, disabled: !hasDoc },
+    { label: "Find Previous", shortcut: `${SHIFT}+F3`, onClick: onFindPrevious, disabled: !hasDoc },
+  ];
+
+  const viewItems = [
+    { label: "Zoom In", shortcut: `${MOD}++`, onClick: onZoomIn, disabled: !hasDoc },
+    { label: "Zoom Out", shortcut: `${MOD}+-`, onClick: onZoomOut, disabled: !hasDoc },
+    { label: "Reset Zoom", shortcut: `${MOD}+0`, onClick: onZoomReset, disabled: !hasDoc },
+    { separator: true },
+    { label: "Fit to Width", onClick: onFitWidth, disabled: !hasDoc },
+    { label: "Fit to Page", onClick: onFitPage, disabled: !hasDoc },
+    { label: "Actual Size", onClick: onActualSize, disabled: !hasDoc },
+    { separator: true },
+    { label: "Rotate Clockwise", onClick: onRotateCW, disabled: !hasDoc },
+    { label: "Rotate Counterclockwise", onClick: onRotateCCW, disabled: !hasDoc },
+    { separator: true },
+    { label: "Toggle Sidebar", onClick: onToggleSidebar, disabled: !hasDoc },
+    { label: "Toggle Presentation Mode", onClick: onTogglePresentation, disabled: !hasDoc },
+    { separator: true },
+    { label: "Toggle Full Screen", shortcut: "F11", onClick: onToggleFullscreen },
+  ];
+
+  const helpItems = [
+    { label: "Visit Website", onClick: onVisitWebsite },
+    { label: "User Manual", onClick: onUserManual },
+    { label: "Keyboard Shortcuts", onClick: onKeyboardShortcuts },
+    { separator: true },
+    { label: "Check for Updates", onClick: onCheckForUpdates, disabled: !isElectron },
+    { separator: true },
+    { label: "About", onClick: onAbout },
+  ];
 
   return (
     <div
@@ -86,20 +153,10 @@ export default function TopAppBar({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-        <MenuButton
-          label="File"
-          items={[
-            { label: "Open…", onClick: onAddTab },
-            {
-              label: "Close Tab",
-              onClick: () => activeTabId && onCloseTab(activeTabId),
-              disabled: !activeTabId,
-            },
-          ]}
-        />
-        <MenuButton label="Edit" items={[{ label: "No actions yet", disabled: true }]} />
-        <MenuButton label="View" items={[{ label: "No actions yet", disabled: true }]} />
-        <MenuButton label="Help" items={[{ label: "No actions yet", disabled: true }]} />
+        <AppMenu label="File" items={fileItems} />
+        <AppMenu label="Edit" items={editItems} />
+        <AppMenu label="View" items={viewItems} />
+        <AppMenu label="Help" items={helpItems} />
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>

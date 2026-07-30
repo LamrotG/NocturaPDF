@@ -22,6 +22,7 @@ export default function ScrollContainer({
   onZoomChange,
   onCurrentPageChange,
   scrollRequest,
+  rotation = 0,
 }) {
   const scrollRef = useRef(null);
   const measureRef = useRef(null);
@@ -171,6 +172,7 @@ export default function ScrollContainer({
               colorMode={colorMode}
               lut={lut}
               isVisible={visiblePages.has(pageNumber)}
+              rotation={rotation}
             />
           </div>
         ))}

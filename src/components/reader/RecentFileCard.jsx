@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { XIcon } from "../common/icons.jsx";
 
 /**
@@ -8,10 +8,12 @@ import { XIcon } from "../common/icons.jsx";
 export default function RecentFileCard({ recentFile, onOpenFile, onRemoveFile }) {
   const { id, name, thumbnail, openedAt } = recentFile;
 
-  // Format the date (e.g., "Today", "Yesterday", "2 days ago")
-  const getTimeAgo = (timestamp) => {
+  // Compute "time ago" label. Date.now() is impure, so we use a lazy
+  // useState initializer (runs once on mount) to capture the timestamp,
+  // then derive the label from it.
+  const [timeAgoLabel] = useState(() => {
     const now = Date.now();
-    const diff = now - timestamp;
+    const diff = now - openedAt;
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor(diff / (1000 * 60));
@@ -23,9 +25,9 @@ export default function RecentFileCard({ recentFile, onOpenFile, onRemoveFile })
     if (hours > 0) return `${hours}h ago`;
     if (minutes > 0) return `${minutes}m ago`;
     return "Just now";
-  };
+  });
 
-  const [showRemoveButton, setShowRemoveButton] = React.useState(false);
+  const [showRemoveButton, setShowRemoveButton] = useState(false);
 
   return (
     <div
@@ -110,7 +112,7 @@ export default function RecentFileCard({ recentFile, onOpenFile, onRemoveFile })
             color: "var(--text-secondary)",
           }}
         >
-          {getTimeAgo(openedAt)}
+          {timeAgoLabel}
         </div>
       </div>
 

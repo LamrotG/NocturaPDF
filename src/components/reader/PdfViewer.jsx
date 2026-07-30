@@ -18,6 +18,7 @@ export default function PdfViewer({
   onNumPagesChange,
   onDocumentLoad,
   scrollRequest,
+  rotation = 0,
 }) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -120,6 +121,7 @@ export default function PdfViewer({
           onZoomChange={onZoomChange}
           onCurrentPageChange={onCurrentPageChange}
           scrollRequest={scrollRequest}
+          rotation={rotation}
         />
       )}
     </div>

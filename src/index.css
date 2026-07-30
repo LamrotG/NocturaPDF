@@ -90,3 +90,20 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* Print: hide all app chrome, show only the PDF canvas pages. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  canvas[data-page-number] {
+    visibility: visible;
+    position: absolute;
+    left: 0;
+    top: 0;
+    page-break-after: always;
+  }
+  canvas[data-page-number]:last-child {
+    page-break-after: auto;
+  }
+}

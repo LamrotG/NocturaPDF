@@ -14,13 +14,22 @@ export function useKeyboard({
   onNextPage,
   onZoomIn,
   onZoomOut,
+  onZoomReset,
   onToggleFocusMode,
   onOpenSearch,
+  onFindNext,
+  onFindPrevious,
   onOpenFile,
   onCloseTab,
   onSave,
+  onSaveAs,
   onPrint,
+  onProperties,
+  onRotateCW,
+  onRotateCCW,
+  onToggleSidebar,
   onToggleFullscreen,
+  onTogglePresentation,
   onEscape,
 }) {
   useEffect(() => {
@@ -41,6 +50,9 @@ export function useKeyboard({
       } else if (ctrlOrCmd && e.key === "-") {
         e.preventDefault();
         onZoomOut?.();
+      } else if (ctrlOrCmd && e.key === "0") {
+        e.preventDefault();
+        onZoomReset?.();
       } else if (ctrlOrCmd && e.key.toLowerCase() === "f") {
         e.preventDefault();
         onOpenSearch?.();
@@ -50,15 +62,35 @@ export function useKeyboard({
       } else if (ctrlOrCmd && e.key.toLowerCase() === "w") {
         e.preventDefault();
         onCloseTab?.();
+      } else if (ctrlOrCmd && e.shiftKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        onSaveAs?.();
       } else if (ctrlOrCmd && e.key.toLowerCase() === "s") {
         e.preventDefault();
         onSave?.();
       } else if (ctrlOrCmd && e.key.toLowerCase() === "p") {
         e.preventDefault();
         onPrint?.();
+      } else if (e.altKey && e.key === "Enter") {
+        e.preventDefault();
+        onProperties?.();
       } else if (e.key === "F11") {
         e.preventDefault();
         onToggleFullscreen?.();
+      } else if (e.key === "F3" && !e.shiftKey) {
+        e.preventDefault();
+        onFindNext?.();
+      } else if (e.key === "F3" && e.shiftKey) {
+        e.preventDefault();
+        onFindPrevious?.();
+      } else if (e.key === "F12") {
+        // DevTools — let Electron handle natively
+      } else if (ctrlOrCmd && e.shiftKey && e.key === "]") {
+        e.preventDefault();
+        onRotateCW?.();
+      } else if (ctrlOrCmd && e.shiftKey && e.key === "[") {
+        e.preventDefault();
+        onRotateCCW?.();
       } else if (!ctrlOrCmd && e.key.toLowerCase() === "f") {
         e.preventDefault();
         onToggleFocusMode?.();
@@ -75,5 +107,27 @@ export function useKeyboard({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onPrevPage, onNextPage, onZoomIn, onZoomOut, onToggleFocusMode, onOpenSearch, onOpenFile, onCloseTab, onSave, onPrint, onToggleFullscreen, onEscape]);
+  }, [
+    onPrevPage,
+    onNextPage,
+    onZoomIn,
+    onZoomOut,
+    onZoomReset,
+    onToggleFocusMode,
+    onOpenSearch,
+    onFindNext,
+    onFindPrevious,
+    onOpenFile,
+    onCloseTab,
+    onSave,
+    onSaveAs,
+    onPrint,
+    onProperties,
+    onRotateCW,
+    onRotateCCW,
+    onToggleSidebar,
+    onToggleFullscreen,
+    onTogglePresentation,
+    onEscape,
+  ]);
 }

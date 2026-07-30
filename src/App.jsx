@@ -5,7 +5,7 @@ import { AppStoreProvider, useAppStore } from "./store/appstore.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import { useRoute } from "./hooks/useRoute.js";
 import { getSidebarCollapsed, setSidebarCollapsed as persistSidebarCollapsed } from "./services/settingService.js";
-import { addRecentFile, getRecentFiles, removeRecentFile } from "./services/recentFilesService.js";
+import { addRecentFile, getRecentFiles, removeRecentFile, clearRecentFiles } from "./services/recentFilesService.js";
 import { themeToCssVars } from "./utils/themeCssVars.js";
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./utils/constants.js";
 import TopAppBar from "./components/layout/TopAppBar.jsx";
@@ -17,6 +17,12 @@ import LandingPage from "./pages/LandingPage.jsx";
 import AboutPage from "./pages/AboutPage.jsx";
 import DevelopersPage from "./pages/DevelopersPage.jsx";
 import DownloadPage from "./pages/DownloadPage.jsx";
+import PropertiesDialog from "./components/dialogs/PropertiesDialog.jsx";
+import KeyboardShortcutsDialog from "./components/dialogs/KeyboardShortcutsDialog.jsx";
+import AboutDialog from "./components/dialogs/AboutDialog.jsx";
+
+const APP_WEBSITE = "https://github.com/LamrotG/NocturaPDF";
+const USER_MANUAL_URL = "https://github.com/LamrotG/NocturaPDF#readme";
 
 function Shell() {
   const { uiThemeId, resolvedTheme, setUiThemeId } = useUiTheme();
@@ -25,7 +31,6 @@ function Shell() {
 
   const rootRef = useRef(null);
   const fileInputRef = useRef(null);
-  const pdfDocRef = useRef(null);
 
   const [zoomFactor, setZoomFactor] = useState(1);
   const [fitMode, setFitMode] = useState("width");
@@ -33,12 +38,23 @@ function Shell() {
   const [numPages, setNumPages] = useState(0);
   const [pdfDoc, setPdfDoc] = useState(null);
   const [scrollRequest, setScrollRequest] = useState(null);
+  const [rotation, setRotation] = useState(0);
 
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() => getSidebarCollapsed());
   const [focusMode, setFocusMode] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
+
+  // Dialog state
+  const [showProperties, setShowProperties] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+
+  const isElectron = typeof window !== "undefined" && Boolean(window.nocturaPdf?.isElectron);
+  const hasDoc = Boolean(activeTab);
+  const hasFilePath = Boolean(activeTab?.file?.path);
 
   // Each tab reloads its own pdf.js document independently (inactive tabs are
   // fully unmounted, see PdfViewer's `key`), so reset derived reader state
@@ -54,6 +70,7 @@ function Shell() {
     setNumPages(0);
     setPdfDoc(null);
     setScrollRequest(null);
+    setRotation(0);
   }
 
   // Mirrors the real browser fullscreen state — Esc can exit native
@@ -70,7 +87,7 @@ function Shell() {
   // Handle opening file dialog - use native dialog for Electron, fallback to file input for browser
   const handleOpenFileDialog = useCallback(async () => {
     // For Electron, use native file dialog
-    if (typeof window !== "undefined" && window.nocturaPdf?.isElectron) {
+    if (isElectron) {
       try {
         const result = await window.nocturaPdf.openFileDialog();
         if (result.success && result.files && result.files.length > 0) {
@@ -94,7 +111,7 @@ function Shell() {
 
     // For browser or as fallback, use HTML file input
     fileInputRef.current?.click();
-  }, [handleOpenFile]);
+  }, [handleOpenFile, isElectron]);
 
   const handleFileInputChange = (e) => {
     const files = e.target.files;
@@ -171,7 +188,7 @@ function Shell() {
   const handleOpenRecentFile = useCallback(
     async (recentFile) => {
       // If in Electron and we have a file path, try to open it directly
-      if (typeof window !== "undefined" && window.nocturaPdf?.isElectron && recentFile.filePath) {
+      if (isElectron && recentFile.filePath) {
         try {
           // Read file from disk
           const result = await window.nocturaPdf.readFile(recentFile.filePath);
@@ -200,13 +217,19 @@ function Shell() {
       // Fallback: open file picker
       handleOpenFileDialog();
     },
-    [handleOpenFileDialog]
+    [handleOpenFileDialog, isElectron, openTab]
   );
 
   // Handle removing a file from recent files list
   const handleRemoveRecentFile = useCallback((fileId) => {
     const updated = removeRecentFile(fileId);
     setRecentFiles(updated);
+  }, []);
+
+  // Handle clearing all recent files
+  const handleClearRecentFiles = useCallback(() => {
+    clearRecentFiles();
+    setRecentFiles([]);
   }, []);
 
   const handleJumpToPage = useCallback((page) => {
@@ -224,6 +247,19 @@ function Shell() {
 
   const handleToggleFocusMode = useCallback(() => setFocusMode((v) => !v), []);
 
+  const handleTogglePresentationMode = useCallback(() => {
+    setPresentationMode((v) => {
+      const next = !v;
+      // Presentation mode hides all chrome and enters fullscreen
+      if (next) {
+        rootRef.current?.requestFullscreen?.().catch(() => {});
+      } else {
+        if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+      }
+      return next;
+    });
+  }, []);
+
   const handleToggleFullscreen = useCallback(async () => {
     try {
       if (document.fullscreenElement) {
@@ -238,28 +274,287 @@ function Shell() {
 
   const handleFitModeChange = useCallback((mode) => setFitMode(mode), []);
 
+  // ── Zoom handlers ────────────────────────────────────────────────────
+  const handleZoomIn = useCallback(() => {
+    setFitMode("custom");
+    setZoomFactor((z) => Math.min(MAX_SCALE, +(z + ZOOM_STEP).toFixed(2)));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setFitMode("custom");
+    setZoomFactor((z) => Math.max(MIN_SCALE, +(z - ZOOM_STEP).toFixed(2)));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setFitMode("width");
+    setZoomFactor(1);
+  }, []);
+
+  const handleFitWidth = useCallback(() => {
+    setFitMode("width");
+    setZoomFactor(1);
+  }, []);
+
+  const handleFitPage = useCallback(() => {
+    setFitMode("page");
+    setZoomFactor(1);
+  }, []);
+
+  const handleActualSize = useCallback(() => {
+    setFitMode("custom");
+    setZoomFactor(1);
+  }, []);
+
+  // ── Rotation handlers ────────────────────────────────────────────────
+  const handleRotateCW = useCallback(() => {
+    setRotation((r) => (r + 90) % 360);
+  }, []);
+
+  const handleRotateCCW = useCallback(() => {
+    setRotation((r) => (r + 270) % 360);
+  }, []);
+
+  // ── File operations ──────────────────────────────────────────────────
+  const handleSaveAs = useCallback(async () => {
+    if (!activeTab?.file || !isElectron) return;
+    try {
+      const arrayBuffer = await activeTab.file.arrayBuffer();
+      const result = await window.nocturaPdf.saveFile(Array.from(new Uint8Array(arrayBuffer)));
+      if (result.success && result.filePath) {
+        // Store the saved path on the File object so subsequent Saves go to
+        // the same location. File objects are plain JS objects — assigning
+        // a custom `path` property is safe and doesn't affect File API.
+        Object.defineProperty(activeTab.file, "path", {
+          value: result.filePath,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      }
+    } catch (e) {
+      console.error("Save As failed:", e);
+    }
+  }, [activeTab, isElectron]);
+
+  const handleSave = useCallback(async () => {
+    if (!activeTab?.file || !isElectron) return;
+    const filePath = activeTab.file.path;
+    if (!filePath) {
+      // No path — fall through to Save As
+      handleSaveAs();
+      return;
+    }
+    try {
+      const arrayBuffer = await activeTab.file.arrayBuffer();
+      const result = await window.nocturaPdf.saveFile(Array.from(new Uint8Array(arrayBuffer)), filePath);
+      if (!result.success && !result.canceled) {
+        console.error("Save failed:", result.error);
+      }
+    } catch (e) {
+      console.error("Save failed:", e);
+    }
+  }, [activeTab, isElectron, handleSaveAs]);
+
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
+
+  const handleShowInFolder = useCallback(() => {
+    if (activeTab?.file?.path && isElectron) {
+      window.nocturaPdf.openFileExplorer(activeTab.file.path);
+    }
+  }, [activeTab, isElectron]);
+
+  // ── Help actions ─────────────────────────────────────────────────────
+  const handleVisitWebsite = useCallback(() => {
+    if (isElectron) {
+      window.nocturaPdf.openExternal(APP_WEBSITE);
+    } else {
+      window.open(APP_WEBSITE, "_blank");
+    }
+  }, [isElectron]);
+
+  const handleUserManual = useCallback(() => {
+    if (isElectron) {
+      window.nocturaPdf.openExternal(USER_MANUAL_URL);
+    } else {
+      window.open(USER_MANUAL_URL, "_blank");
+    }
+  }, [isElectron]);
+
+  const handleCheckForUpdates = useCallback(() => {
+    // In Electron, the native menu handles this directly.
+    // In browser, open the releases page.
+    if (!isElectron) {
+      window.open("https://github.com/LamrotG/NocturaPDF/releases/latest", "_blank");
+    }
+  }, [isElectron]);
+
+  // ── Native menu action listener (Electron only) ──────────────────────
+  // Receives menu:action events from the native menu and dispatches to the
+  // appropriate handler. This bridges the hidden native menu bar to the
+  // React app's state and actions.
+  useEffect(() => {
+    if (!isElectron || !window.nocturaPdf?.onMenuAction) return;
+
+    const unsubscribe = window.nocturaPdf.onMenuAction((payload) => {
+      const { action } = payload;
+      switch (action) {
+        case "open":
+          handleOpenFileDialog();
+          break;
+        case "close":
+          if (activeTabId) closeTab(activeTabId);
+          break;
+        case "open-recent":
+          if (payload.filePath) {
+            // Read and open the file
+            window.nocturaPdf.readFile(payload.filePath).then((result) => {
+              if (result.success) {
+                const uint8Array = new Uint8Array(result.data);
+                const fileObj = new File([uint8Array], payload.name || "document.pdf", {
+                  type: "application/pdf",
+                });
+                fileObj.path = payload.filePath;
+                openTab(fileObj, payload.name || "document.pdf");
+              }
+            });
+          }
+          break;
+        case "clear-recent":
+          handleClearRecentFiles();
+          break;
+        case "save":
+          handleSave();
+          break;
+        case "save-as":
+          handleSaveAs();
+          break;
+        case "print":
+          handlePrint();
+          break;
+        case "properties":
+          setShowProperties(true);
+          break;
+        case "find":
+          setSearchOpen(true);
+          break;
+        case "find-next":
+          // Find next/previous not yet implemented (search is a stub)
+          break;
+        case "find-previous":
+          break;
+        case "zoom-in":
+          handleZoomIn();
+          break;
+        case "zoom-out":
+          handleZoomOut();
+          break;
+        case "zoom-reset":
+          handleZoomReset();
+          break;
+        case "fit-width":
+          handleFitWidth();
+          break;
+        case "fit-page":
+          handleFitPage();
+          break;
+        case "actual-size":
+          handleActualSize();
+          break;
+        case "rotate-cw":
+          handleRotateCW();
+          break;
+        case "rotate-ccw":
+          handleRotateCCW();
+          break;
+        case "toggle-sidebar":
+          handleToggleSidebar();
+          break;
+        case "toggle-presentation":
+          handleTogglePresentationMode();
+          break;
+        case "toggle-fullscreen":
+          handleToggleFullscreen();
+          break;
+        case "keyboard-shortcuts":
+          setShowShortcuts(true);
+          break;
+        case "about":
+          setShowAbout(true);
+          break;
+        default:
+          break;
+      }
+    });
+
+    return unsubscribe;
+  }, [
+    isElectron,
+    activeTabId,
+    closeTab,
+    openTab,
+    handleOpenFileDialog,
+    handleClearRecentFiles,
+    handleSave,
+    handleSaveAs,
+    handlePrint,
+    handleZoomIn,
+    handleZoomOut,
+    handleZoomReset,
+    handleFitWidth,
+    handleFitPage,
+    handleActualSize,
+    handleRotateCW,
+    handleRotateCCW,
+    handleToggleSidebar,
+    handleTogglePresentationMode,
+    handleToggleFullscreen,
+  ]);
+
+  // ── Sync state to native menu (Electron only) ────────────────────────
+  // Pushes document state and recent files to the native menu so it can
+  // enable/disable items and rebuild the Open Recent submenu.
+  useEffect(() => {
+    if (!isElectron || !window.nocturaPdf?.updateMenuState) return;
+    window.nocturaPdf.updateMenuState({
+      hasDoc,
+      filePath: activeTab?.file?.path || null,
+      recentFiles: recentFiles.map((f) => ({ name: f.name, filePath: f.filePath })),
+    });
+  }, [isElectron, hasDoc, activeTab, recentFiles]);
+
   useKeyboard({
     onPrevPage: () => handleJumpToPage(Math.max(1, currentPage - 1)),
     onNextPage: () => handleJumpToPage(Math.min(Math.max(numPages, 1), currentPage + 1)),
-    onZoomIn: () => {
-      setFitMode("custom");
-      setZoomFactor((z) => Math.min(MAX_SCALE, +(z + ZOOM_STEP).toFixed(2)));
-    },
-    onZoomOut: () => {
-      setFitMode("custom");
-      setZoomFactor((z) => Math.max(MIN_SCALE, +(z - ZOOM_STEP).toFixed(2)));
-    },
+    onZoomIn: handleZoomIn,
+    onZoomOut: handleZoomOut,
+    onZoomReset: handleZoomReset,
     onToggleFocusMode: handleToggleFocusMode,
     onOpenSearch: () => setSearchOpen(true),
+    onFindNext: () => {},
+    onFindPrevious: () => {},
+    onOpenFile: handleOpenFileDialog,
+    onCloseTab: () => activeTabId && closeTab(activeTabId),
+    onSave: handleSave,
+    onSaveAs: handleSaveAs,
+    onPrint: handlePrint,
+    onProperties: () => setShowProperties(true),
+    onRotateCW: handleRotateCW,
+    onRotateCCW: handleRotateCCW,
+    onToggleSidebar: handleToggleSidebar,
+    onToggleFullscreen: handleToggleFullscreen,
+    onTogglePresentation: handleTogglePresentationMode,
     onEscape: () => {
       setFocusMode(false);
+      setPresentationMode(false);
       setSearchOpen(false);
     },
   });
 
   // Focus mode temporarily overrides the sidebar without mutating the
   // persisted preference — exiting focus mode restores whatever was saved.
-  const effectiveSidebarCollapsed = sidebarCollapsed || focusMode;
+  const effectiveSidebarCollapsed = sidebarCollapsed || focusMode || presentationMode;
 
   const cssVars = useMemo(() => themeToCssVars(resolvedTheme), [resolvedTheme]);
 
@@ -284,7 +579,7 @@ function Shell() {
         style={{ display: "none" }}
       />
 
-      {!focusMode && (
+      {!focusMode && !presentationMode && (
         <>
           <TopAppBar
             tabs={tabs}
@@ -296,6 +591,35 @@ function Shell() {
             setUiThemeId={setUiThemeId}
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
+            hasDoc={hasDoc}
+            hasFilePath={hasFilePath}
+            isElectron={isElectron}
+            recentFiles={recentFiles}
+            onOpenRecent={handleOpenRecentFile}
+            onClearRecent={handleClearRecentFiles}
+            onShowInFolder={handleShowInFolder}
+            onSave={handleSave}
+            onSaveAs={handleSaveAs}
+            onPrint={handlePrint}
+            onProperties={() => setShowProperties(true)}
+            onFind={() => setSearchOpen(true)}
+            onFindNext={() => {}}
+            onFindPrevious={() => {}}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onZoomReset={handleZoomReset}
+            onFitWidth={handleFitWidth}
+            onFitPage={handleFitPage}
+            onActualSize={handleActualSize}
+            onRotateCW={handleRotateCW}
+            onRotateCCW={handleRotateCCW}
+            onToggleSidebar={handleToggleSidebar}
+            onTogglePresentation={handleTogglePresentationMode}
+            onVisitWebsite={handleVisitWebsite}
+            onUserManual={handleUserManual}
+            onKeyboardShortcuts={() => setShowShortcuts(true)}
+            onCheckForUpdates={handleCheckForUpdates}
+            onAbout={() => setShowAbout(true)}
           />
 
           <SecondaryToolbar
@@ -380,6 +704,7 @@ function Shell() {
               onNumPagesChange={setNumPages}
               onDocumentLoad={handleDocumentLoad}
               scrollRequest={scrollRequest}
+              rotation={rotation}
             />
           ) : (
             <EmptyState 
@@ -390,6 +715,23 @@ function Shell() {
           )}
         </div>
       </div>
+
+      {/* Dialogs */}
+      <PropertiesDialog
+        open={showProperties}
+        onClose={() => setShowProperties(false)}
+        file={activeTab?.file}
+        pdfDoc={pdfDoc}
+        numPages={numPages}
+      />
+      <KeyboardShortcutsDialog
+        open={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+      />
+      <AboutDialog
+        open={showAbout}
+        onClose={() => setShowAbout(false)}
+      />
     </div>
   );
 }

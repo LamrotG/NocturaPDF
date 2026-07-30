@@ -27,6 +27,7 @@ export default function PageCanvas({
   colorMode,
   lut,
   isVisible,
+  rotation = 0,
 }) {
   const canvasRef = useRef(null);
   const pageRef = useRef(null);
@@ -46,7 +47,7 @@ export default function PageCanvas({
       const page = pageRef.current || (await pdfDoc.getPage(pageNumber));
       if (cancelled) return;
       pageRef.current = page;
-      const unscaled = page.getViewport({ scale: 1 });
+      const unscaled = page.getViewport({ scale: 1, rotation });
       setUnscaledSize({ width: unscaled.width, height: unscaled.height });
     }
 
@@ -55,7 +56,7 @@ export default function PageCanvas({
     return () => {
       cancelled = true;
     };
-  }, [pdfDoc, pageNumber]);
+  }, [pdfDoc, pageNumber, rotation]);
 
   const scale = unscaledSize
     ? clampScale(
@@ -109,7 +110,7 @@ export default function PageCanvas({
       if (cancelled) return;
       pageRef.current = page;
 
-      const viewport = page.getViewport({ scale });
+      const viewport = page.getViewport({ scale, rotation });
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
 
@@ -155,7 +156,7 @@ export default function PageCanvas({
     // Color mode changes are handled by the effect below, which reapplies
     // from the cache instead of re-invoking the (expensive) pdf.js render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, scale, pdfDoc, pageNumber]);
+  }, [isVisible, scale, pdfDoc, pageNumber, rotation]);
 
   // Reapply the color mode from the cached raw pixels — no pdf.js re-render.
   useEffect(() => {
