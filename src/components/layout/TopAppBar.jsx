@@ -22,6 +22,7 @@ export default function TopAppBar({
   onSelectTab,
   onCloseTab,
   onAddTab,
+  onGoHome,
   uiThemeId,
   setUiThemeId,
   isFullscreen,
@@ -152,7 +153,33 @@ export default function TopAppBar({
         minWidth: 0,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+        <button
+          type="button"
+          aria-label="Go to home"
+          onClick={onGoHome}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 34,
+            height: 34,
+            padding: 2,
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            background: "var(--code-bg)",
+            color: "var(--accent)",
+            cursor: "pointer",
+            overflow: "hidden",
+          }}
+          title="Home"
+        >
+          <img
+            src="/favicon.svg"
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+          />
+        </button>
         <AppMenu label="File" items={fileItems} />
         <AppMenu label="Edit" items={editItems} />
         <AppMenu label="View" items={viewItems} />

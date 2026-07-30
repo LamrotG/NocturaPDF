@@ -24,7 +24,7 @@ import AboutDialog from "./components/dialogs/AboutDialog.jsx";
 const APP_WEBSITE = "https://github.com/LamrotG/NocturaPDF";
 const USER_MANUAL_URL = "https://github.com/LamrotG/NocturaPDF#readme";
 
-function Shell() {
+function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
   const { uiThemeId, resolvedTheme, setUiThemeId } = useUiTheme();
   const { colorModeId, setColorModeId, colorMode, lut, colorModes } = usePdfColorMode();
   const { tabs, activeTabId, activeTab, openTab, closeTab, setActiveTab } = useAppStore();
@@ -84,6 +84,20 @@ function Shell() {
 
   const handleOpenFile = useCallback((file) => openTab(file, file.name), [openTab]);
 
+  const handleNavigateToReader = useCallback(() => {
+    onNavigateReader?.();
+  }, [onNavigateReader]);
+
+  const handleSelectTab = useCallback(
+    (id) => {
+      setActiveTab(id);
+      if (showHomeView) {
+        handleNavigateToReader();
+      }
+    },
+    [setActiveTab, showHomeView, handleNavigateToReader]
+  );
+
   // Handle opening file dialog - use native dialog for Electron, fallback to file input for browser
   const handleOpenFileDialog = useCallback(async () => {
     // For Electron, use native file dialog
@@ -101,6 +115,9 @@ function Shell() {
             fileObj.path = fileData.filePath;
             handleOpenFile(fileObj);
           });
+          if (showHomeView) {
+            handleNavigateToReader();
+          }
         }
         return;
       } catch (error) {
@@ -111,7 +128,7 @@ function Shell() {
 
     // For browser or as fallback, use HTML file input
     fileInputRef.current?.click();
-  }, [handleOpenFile, isElectron]);
+  }, [handleOpenFile, isElectron, showHomeView, handleNavigateToReader]);
 
   const handleFileInputChange = (e) => {
     const files = e.target.files;
@@ -120,6 +137,9 @@ function Shell() {
       Array.from(files).forEach((file) => {
         handleOpenFile(file);
       });
+      if (showHomeView) {
+        handleNavigateToReader();
+      }
     }
     e.target.value = "";
   };
@@ -200,6 +220,9 @@ function Shell() {
             // Store the path for future reference
             fileObj.path = recentFile.filePath;
             openTab(fileObj, recentFile.name);
+            if (showHomeView) {
+              handleNavigateToReader();
+            }
             return;
           }
         } catch (error) {
@@ -217,7 +240,7 @@ function Shell() {
       // Fallback: open file picker
       handleOpenFileDialog();
     },
-    [handleOpenFileDialog, isElectron, openTab]
+    [handleOpenFileDialog, isElectron, openTab, showHomeView, handleNavigateToReader]
   );
 
   // Handle removing a file from recent files list
@@ -584,7 +607,7 @@ function Shell() {
           <TopAppBar
             tabs={tabs}
             activeTabId={activeTabId}
-            onSelectTab={setActiveTab}
+            onSelectTab={handleSelectTab}
             onCloseTab={closeTab}
             onAddTab={handleOpenFileDialog}
             uiThemeId={uiThemeId}
@@ -620,6 +643,7 @@ function Shell() {
             onKeyboardShortcuts={() => setShowShortcuts(true)}
             onCheckForUpdates={handleCheckForUpdates}
             onAbout={() => setShowAbout(true)}
+            onGoHome={onGoHome}
           />
 
           <SecondaryToolbar
@@ -691,7 +715,7 @@ function Shell() {
             </div>
           )}
 
-          {activeTab ? (
+          {!showHomeView && activeTab ? (
             <PdfViewer
               key={activeTab.id}
               file={activeTab.file}
@@ -706,13 +730,23 @@ function Shell() {
               scrollRequest={scrollRequest}
               rotation={rotation}
             />
-          ) : (
-            <EmptyState 
+          ) : null}
+
+          {showHomeView ? (
+            <EmptyState
               onOpenFile={handleOpenFileDialog}
               recentFiles={recentFiles}
               onRemoveRecentFile={handleRemoveRecentFile}
             />
-          )}
+          ) : null}
+
+          {!showHomeView && !activeTab ? (
+            <EmptyState
+              onOpenFile={handleOpenFileDialog}
+              recentFiles={recentFiles}
+              onRemoveRecentFile={handleRemoveRecentFile}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -747,11 +781,15 @@ function AppRoot() {
   const { resolvedTheme } = useUiTheme();
   const cssVars = useMemo(() => themeToCssVars(resolvedTheme), [resolvedTheme]);
 
-  if (isElectron || path.startsWith("/app")) {
+  if (isElectron || path.startsWith("/app") || path === "/home") {
     return (
       <PdfColorModeProvider>
         <AppStoreProvider>
-          <Shell />
+          <Shell
+            showHomeView={path === "/home"}
+            onGoHome={() => navigate("/home")}
+            onNavigateReader={() => navigate("/app")}
+          />
         </AppStoreProvider>
       </PdfColorModeProvider>
     );
