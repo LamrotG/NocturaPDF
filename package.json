@@ -1,8 +1,8 @@
 {
   "name": "nocturapdf",
   "private": true,
-  "version": "0.1.0",
-  "description": "A dark, focused, offline PDF reader for the desktop and the browser.",
+  "version": "0.2.0",
+  "description": "A dark, focused, offline-first PDF reader for the browser. Installable as a PWA.",
   "author": "Lamrot Gashaw",
   "license": "MIT",
   "repository": {
@@ -11,16 +11,14 @@
   },
   "homepage": "https://github.com/LamrotG/NocturaPDF",
   "type": "module",
-  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "electron": "electron .",
-    "electron:build": "electron-builder"
+    "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.2",
     "pdfjs-dist": "^5.5.207",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
@@ -30,27 +28,10 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.0",
-    "electron": "^43.0.0",
-    "electron-builder": "^26.15.3",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "vite": "^8.0.0"
-  },
-  "build": {
-    "appId": "com.nocturapdf.app",
-    "productName": "NocturaPDF",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
-    }
   }
 }

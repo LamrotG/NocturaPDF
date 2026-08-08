@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { UiThemeProvider, useUiTheme } from "./hooks/useUiTheme.js";
 import { PdfColorModeProvider, usePdfColorMode } from "./hooks/usePdfColorMode.js";
 import { AppStoreProvider, useAppStore } from "./store/appstore.js";
+import { AuthProvider, useAuth } from "./hooks/useAuth.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import { useRoute } from "./hooks/useRoute.js";
 import { getSidebarCollapsed, setSidebarCollapsed as persistSidebarCollapsed } from "./services/settingService.js";
@@ -16,7 +17,11 @@ import EmptyState from "./components/reader/EmptyState.jsx";
 import LandingPage from "./pages/LandingPage.jsx";
 import AboutPage from "./pages/AboutPage.jsx";
 import DevelopersPage from "./pages/DevelopersPage.jsx";
-import DownloadPage from "./pages/DownloadPage.jsx";
+import DocumentationPage from "./pages/DocumentationPage.jsx";
+import SignInPage from "./pages/SignInPage.jsx";
+import SignUpPage from "./pages/SignUpPage.jsx";
+import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
+import ProfileSettingsPage from "./pages/ProfileSettingsPage.jsx";
 import PropertiesDialog from "./components/dialogs/PropertiesDialog.jsx";
 import KeyboardShortcutsDialog from "./components/dialogs/KeyboardShortcutsDialog.jsx";
 import AboutDialog from "./components/dialogs/AboutDialog.jsx";
@@ -24,10 +29,11 @@ import AboutDialog from "./components/dialogs/AboutDialog.jsx";
 const APP_WEBSITE = "https://github.com/LamrotG/NocturaPDF";
 const USER_MANUAL_URL = "https://github.com/LamrotG/NocturaPDF#readme";
 
-function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
+function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate }) {
   const { uiThemeId, resolvedTheme, setUiThemeId } = useUiTheme();
   const { colorModeId, setColorModeId, colorMode, lut, colorModes } = usePdfColorMode();
   const { tabs, activeTabId, activeTab, openTab, closeTab, setActiveTab } = useAppStore();
+  const { isSignedIn, profile } = useAuth();
 
   const rootRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -52,9 +58,7 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
 
-  const isElectron = typeof window !== "undefined" && Boolean(window.nocturaPdf?.isElectron);
   const hasDoc = Boolean(activeTab);
-  const hasFilePath = Boolean(activeTab?.file?.path);
 
   // Each tab reloads its own pdf.js document independently (inactive tabs are
   // fully unmounted, see PdfViewer's `key`), so reset derived reader state
@@ -98,37 +102,10 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
     [setActiveTab, showHomeView, handleNavigateToReader]
   );
 
-  // Handle opening file dialog - use native dialog for Electron, fallback to file input for browser
-  const handleOpenFileDialog = useCallback(async () => {
-    // For Electron, use native file dialog
-    if (isElectron) {
-      try {
-        const result = await window.nocturaPdf.openFileDialog();
-        if (result.success && result.files && result.files.length > 0) {
-          // Open all selected files
-          result.files.forEach((fileData) => {
-            const uint8Array = new Uint8Array(fileData.data);
-            const fileObj = new File([uint8Array], fileData.name, {
-              type: "application/pdf",
-            });
-            // Store the file path for future reference (e.g., recent files)
-            fileObj.path = fileData.filePath;
-            handleOpenFile(fileObj);
-          });
-          if (showHomeView) {
-            handleNavigateToReader();
-          }
-        }
-        return;
-      } catch (error) {
-        console.error("Error opening file dialog:", error);
-        // Fall through to file input as fallback
-      }
-    }
-
-    // For browser or as fallback, use HTML file input
+  // Open file dialog — PWA uses the HTML file input (no Electron native dialog).
+  const handleOpenFileDialog = useCallback(() => {
     fileInputRef.current?.click();
-  }, [handleOpenFile, isElectron, showHomeView, handleNavigateToReader]);
+  }, []);
 
   const handleFileInputChange = (e) => {
     const files = e.target.files;
@@ -186,15 +163,7 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
       if (activeTab && pdfDocument) {
         try {
           const thumbnail = await generateThumbnail(pdfDocument);
-          // Extract file path if available (File API doesn't expose path, but we can try)
-          let filePath = null;
-          if (activeTab.file && activeTab.file.path) {
-            filePath = activeTab.file.path;
-          } else if (activeTab.file && activeTab.file.webkitRelativePath) {
-            // Try webkitRelativePath as fallback
-            filePath = activeTab.file.webkitRelativePath;
-          }
-          const updated = addRecentFile(activeTab.file, thumbnail, filePath);
+          const updated = addRecentFile(activeTab.file, thumbnail);
           setRecentFiles(updated);
         } catch (e) {
           console.warn("Error tracking recent file:", e);
@@ -206,41 +175,13 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
 
   // Handle opening a file from recent files
   const handleOpenRecentFile = useCallback(
-    async (recentFile) => {
-      // If in Electron and we have a file path, try to open it directly
-      if (isElectron && recentFile.filePath) {
-        try {
-          // Read file from disk
-          const result = await window.nocturaPdf.readFile(recentFile.filePath);
-          if (result.success) {
-            // Convert array back to Uint8Array
-            const uint8Array = new Uint8Array(result.data);
-            // Create a pseudo-File object for the viewer
-            const fileObj = new File([uint8Array], recentFile.name, { type: "application/pdf" });
-            // Store the path for future reference
-            fileObj.path = recentFile.filePath;
-            openTab(fileObj, recentFile.name);
-            if (showHomeView) {
-              handleNavigateToReader();
-            }
-            return;
-          }
-        } catch (error) {
-          console.warn("Failed to open file from recent files:", error);
-          // Fall back to opening in file explorer
-          try {
-            await window.nocturaPdf.openFileExplorer(recentFile.filePath);
-            return;
-          } catch (e) {
-            console.warn("Failed to open file explorer:", e);
-          }
-        }
-      }
-      
-      // Fallback: open file picker
+    () => {
+      // In the PWA, recent files are just metadata — the actual bytes are
+      // either in OPFS (Local Library) or re-picked by the user. For now,
+      // open the file picker so the user can re-select the file.
       handleOpenFileDialog();
     },
-    [handleOpenFileDialog, isElectron, openTab, showHomeView, handleNavigateToReader]
+    [handleOpenFileDialog]
   );
 
   // Handle removing a file from recent files list
@@ -337,215 +278,40 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
     setRotation((r) => (r + 270) % 360);
   }, []);
 
-  // ── File operations ──────────────────────────────────────────────────
+  // ── File operations (PWA: no native save dialog) ─────────────────────
   const handleSaveAs = useCallback(async () => {
-    if (!activeTab?.file || !isElectron) return;
+    if (!activeTab?.file) return;
     try {
       const arrayBuffer = await activeTab.file.arrayBuffer();
-      const result = await window.nocturaPdf.saveFile(Array.from(new Uint8Array(arrayBuffer)));
-      if (result.success && result.filePath) {
-        // Store the saved path on the File object so subsequent Saves go to
-        // the same location. File objects are plain JS objects — assigning
-        // a custom `path` property is safe and doesn't affect File API.
-        Object.defineProperty(activeTab.file, "path", {
-          value: result.filePath,
-          writable: true,
-          enumerable: true,
-          configurable: true,
-        });
-      }
+      const blob = new Blob([arrayBuffer], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = activeTab.file.name || "document.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
       console.error("Save As failed:", e);
     }
-  }, [activeTab, isElectron]);
+  }, [activeTab]);
 
-  const handleSave = useCallback(async () => {
-    if (!activeTab?.file || !isElectron) return;
-    const filePath = activeTab.file.path;
-    if (!filePath) {
-      // No path — fall through to Save As
-      handleSaveAs();
-      return;
-    }
-    try {
-      const arrayBuffer = await activeTab.file.arrayBuffer();
-      const result = await window.nocturaPdf.saveFile(Array.from(new Uint8Array(arrayBuffer)), filePath);
-      if (!result.success && !result.canceled) {
-        console.error("Save failed:", result.error);
-      }
-    } catch (e) {
-      console.error("Save failed:", e);
-    }
-  }, [activeTab, isElectron, handleSaveAs]);
+  const handleSave = useCallback(() => {
+    // In the PWA, "Save" is the same as "Save As" (download a copy).
+    handleSaveAs();
+  }, [handleSaveAs]);
 
   const handlePrint = useCallback(() => {
     window.print();
   }, []);
 
-  const handleShowInFolder = useCallback(() => {
-    if (activeTab?.file?.path && isElectron) {
-      window.nocturaPdf.openFileExplorer(activeTab.file.path);
-    }
-  }, [activeTab, isElectron]);
-
   // ── Help actions ─────────────────────────────────────────────────────
   const handleVisitWebsite = useCallback(() => {
-    if (isElectron) {
-      window.nocturaPdf.openExternal(APP_WEBSITE);
-    } else {
-      window.open(APP_WEBSITE, "_blank");
-    }
-  }, [isElectron]);
+    window.open(APP_WEBSITE, "_blank");
+  }, []);
 
   const handleUserManual = useCallback(() => {
-    if (isElectron) {
-      window.nocturaPdf.openExternal(USER_MANUAL_URL);
-    } else {
-      window.open(USER_MANUAL_URL, "_blank");
-    }
-  }, [isElectron]);
-
-  const handleCheckForUpdates = useCallback(() => {
-    // In Electron, the native menu handles this directly.
-    // In browser, open the releases page.
-    if (!isElectron) {
-      window.open("https://github.com/LamrotG/NocturaPDF/releases/latest", "_blank");
-    }
-  }, [isElectron]);
-
-  // ── Native menu action listener (Electron only) ──────────────────────
-  // Receives menu:action events from the native menu and dispatches to the
-  // appropriate handler. This bridges the hidden native menu bar to the
-  // React app's state and actions.
-  useEffect(() => {
-    if (!isElectron || !window.nocturaPdf?.onMenuAction) return;
-
-    const unsubscribe = window.nocturaPdf.onMenuAction((payload) => {
-      const { action } = payload;
-      switch (action) {
-        case "open":
-          handleOpenFileDialog();
-          break;
-        case "close":
-          if (activeTabId) closeTab(activeTabId);
-          break;
-        case "open-recent":
-          if (payload.filePath) {
-            // Read and open the file
-            window.nocturaPdf.readFile(payload.filePath).then((result) => {
-              if (result.success) {
-                const uint8Array = new Uint8Array(result.data);
-                const fileObj = new File([uint8Array], payload.name || "document.pdf", {
-                  type: "application/pdf",
-                });
-                fileObj.path = payload.filePath;
-                openTab(fileObj, payload.name || "document.pdf");
-              }
-            });
-          }
-          break;
-        case "clear-recent":
-          handleClearRecentFiles();
-          break;
-        case "save":
-          handleSave();
-          break;
-        case "save-as":
-          handleSaveAs();
-          break;
-        case "print":
-          handlePrint();
-          break;
-        case "properties":
-          setShowProperties(true);
-          break;
-        case "find":
-          setSearchOpen(true);
-          break;
-        case "find-next":
-          // Find next/previous not yet implemented (search is a stub)
-          break;
-        case "find-previous":
-          break;
-        case "zoom-in":
-          handleZoomIn();
-          break;
-        case "zoom-out":
-          handleZoomOut();
-          break;
-        case "zoom-reset":
-          handleZoomReset();
-          break;
-        case "fit-width":
-          handleFitWidth();
-          break;
-        case "fit-page":
-          handleFitPage();
-          break;
-        case "actual-size":
-          handleActualSize();
-          break;
-        case "rotate-cw":
-          handleRotateCW();
-          break;
-        case "rotate-ccw":
-          handleRotateCCW();
-          break;
-        case "toggle-sidebar":
-          handleToggleSidebar();
-          break;
-        case "toggle-presentation":
-          handleTogglePresentationMode();
-          break;
-        case "toggle-fullscreen":
-          handleToggleFullscreen();
-          break;
-        case "keyboard-shortcuts":
-          setShowShortcuts(true);
-          break;
-        case "about":
-          setShowAbout(true);
-          break;
-        default:
-          break;
-      }
-    });
-
-    return unsubscribe;
-  }, [
-    isElectron,
-    activeTabId,
-    closeTab,
-    openTab,
-    handleOpenFileDialog,
-    handleClearRecentFiles,
-    handleSave,
-    handleSaveAs,
-    handlePrint,
-    handleZoomIn,
-    handleZoomOut,
-    handleZoomReset,
-    handleFitWidth,
-    handleFitPage,
-    handleActualSize,
-    handleRotateCW,
-    handleRotateCCW,
-    handleToggleSidebar,
-    handleTogglePresentationMode,
-    handleToggleFullscreen,
-  ]);
-
-  // ── Sync state to native menu (Electron only) ────────────────────────
-  // Pushes document state and recent files to the native menu so it can
-  // enable/disable items and rebuild the Open Recent submenu.
-  useEffect(() => {
-    if (!isElectron || !window.nocturaPdf?.updateMenuState) return;
-    window.nocturaPdf.updateMenuState({
-      hasDoc,
-      filePath: activeTab?.file?.path || null,
-      recentFiles: recentFiles.map((f) => ({ name: f.name, filePath: f.filePath })),
-    });
-  }, [isElectron, hasDoc, activeTab, recentFiles]);
+    window.open(USER_MANUAL_URL, "_blank");
+  }, []);
 
   useKeyboard({
     onPrevPage: () => handleJumpToPage(Math.max(1, currentPage - 1)),
@@ -615,12 +381,9 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
             hasDoc={hasDoc}
-            hasFilePath={hasFilePath}
-            isElectron={isElectron}
             recentFiles={recentFiles}
             onOpenRecent={handleOpenRecentFile}
             onClearRecent={handleClearRecentFiles}
-            onShowInFolder={handleShowInFolder}
             onSave={handleSave}
             onSaveAs={handleSaveAs}
             onPrint={handlePrint}
@@ -641,9 +404,11 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
             onVisitWebsite={handleVisitWebsite}
             onUserManual={handleUserManual}
             onKeyboardShortcuts={() => setShowShortcuts(true)}
-            onCheckForUpdates={handleCheckForUpdates}
             onAbout={() => setShowAbout(true)}
             onGoHome={onGoHome}
+            isSignedIn={isSignedIn}
+            profileName={profile?.name}
+            onProfile={() => onNavigate("/profile")}
           />
 
           <SecondaryToolbar
@@ -770,25 +535,21 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader }) {
   );
 }
 
-// The desktop build loads dist/index.html straight off disk (or the Vite dev
-// server root), neither of which is the "/app" path our history-based router
-// checks below. Flagging Electron here lets the reader open immediately
-// instead of showing the marketing landing page first.
-const isElectron = typeof window !== "undefined" && Boolean(window.nocturaPdf?.isElectron);
-
 function AppRoot() {
   const [path, navigate] = useRoute();
   const { resolvedTheme } = useUiTheme();
   const cssVars = useMemo(() => themeToCssVars(resolvedTheme), [resolvedTheme]);
 
-  if (isElectron || path.startsWith("/app") || path === "/home") {
+  // The reader is the app itself — the logo in the corner serves as "home".
+  if (path.startsWith("/app")) {
     return (
       <PdfColorModeProvider>
         <AppStoreProvider>
           <Shell
-            showHomeView={path === "/home"}
-            onGoHome={() => navigate("/home")}
+            showHomeView={false}
+            onGoHome={() => navigate("/")}
             onNavigateReader={() => navigate("/app")}
+            onNavigate={navigate}
           />
         </AppStoreProvider>
       </PdfColorModeProvider>
@@ -803,6 +564,14 @@ function AppRoot() {
     );
   }
 
+  if (path.startsWith("/docs")) {
+    return (
+      <div style={cssVars}>
+        <DocumentationPage onNavigate={navigate} />
+      </div>
+    );
+  }
+
   if (path.startsWith("/developers")) {
     return (
       <div style={cssVars}>
@@ -811,10 +580,34 @@ function AppRoot() {
     );
   }
 
-  if (path.startsWith("/download")) {
+  if (path.startsWith("/signin")) {
     return (
       <div style={cssVars}>
-        <DownloadPage onNavigate={navigate} />
+        <SignInPage onNavigate={navigate} />
+      </div>
+    );
+  }
+
+  if (path.startsWith("/signup")) {
+    return (
+      <div style={cssVars}>
+        <SignUpPage onNavigate={navigate} />
+      </div>
+    );
+  }
+
+  if (path.startsWith("/reset-password")) {
+    return (
+      <div style={cssVars}>
+        <ResetPasswordPage onNavigate={navigate} />
+      </div>
+    );
+  }
+
+  if (path.startsWith("/profile")) {
+    return (
+      <div style={cssVars}>
+        <ProfileSettingsPage onNavigate={navigate} />
       </div>
     );
   }
@@ -829,7 +622,9 @@ function AppRoot() {
 export default function App() {
   return (
     <UiThemeProvider>
-      <AppRoot />
+      <AuthProvider>
+        <AppRoot />
+      </AuthProvider>
     </UiThemeProvider>
   );
 }

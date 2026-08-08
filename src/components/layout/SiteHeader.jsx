@@ -9,8 +9,9 @@ const navLinkStyle = {
   cursor: "pointer",
 };
 
-// Shared top bar for every public page (Home, About, Developers, Download) so
-// navigation and branding stay identical across the site.
+// Shared top bar for every public page (landing, About, Documentation,
+// Developers, sign in/up). The logo itself acts as "Home" — clicking it
+// returns to the landing page. Navigation: About, Documentation, Developers.
 export default function SiteHeader({ onNavigate }) {
   return (
     <div style={{ borderBottom: "1px solid var(--border)" }}>
@@ -46,34 +47,31 @@ export default function SiteHeader({ onNavigate }) {
         </button>
 
         <nav style={{ display: "flex", gap: 24 }}>
-          <button style={navLinkStyle} onClick={() => onNavigate("/")}>
-            Home
-          </button>
           <button style={navLinkStyle} onClick={() => onNavigate("/about")}>
             About
           </button>
+          <button style={navLinkStyle} onClick={() => onNavigate("/docs")}>
+            Documentation
+          </button>
           <button style={navLinkStyle} onClick={() => onNavigate("/developers")}>
             Developers
-          </button>
-          <button style={navLinkStyle} onClick={() => onNavigate("/download")}>
-            Download
           </button>
         </nav>
 
         <div style={{ justifySelf: "end" }}>
           <button
-            onClick={() => onNavigate("/download")}
+            onClick={() => onNavigate("/signin")}
             style={{
               padding: "8px 16px",
               fontSize: 14,
               borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--text-h)",
+              border: "1px solid var(--accent)",
+              background: "var(--accent)",
+              color: "#fff",
               cursor: "pointer",
             }}
           >
-            Get App
+            Sign In
           </button>
         </div>
       </div>

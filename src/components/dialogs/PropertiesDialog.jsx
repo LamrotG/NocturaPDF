@@ -63,10 +63,8 @@ function Row({ label, value }) {
 }
 
 // Shows document information: filename, path, size, page count, PDF metadata,
-// and creation/modification dates. Fetches file stats from the main process
-// (when running in Electron) and merges them with pdf.js metadata.
+// and creation/modification dates. Merges File API info with pdf.js metadata.
 export default function PropertiesDialog({ open, onClose, file, pdfDoc, numPages }) {
-  const [fileInfo, setFileInfo] = useState(null);
   const [pdfMeta, setPdfMeta] = useState(null);
 
   useEffect(() => {
@@ -76,18 +74,7 @@ export default function PropertiesDialog({ open, onClose, file, pdfDoc, numPages
 
     async function load() {
       // Reset previous data when opening
-      setFileInfo(null);
       setPdfMeta(null);
-
-      // File stats from the OS (Electron only)
-      if (file?.path && window.nocturaPdf?.getFileInfo) {
-        try {
-          const result = await window.nocturaPdf.getFileInfo(file.path);
-          if (!cancelled && result.success) setFileInfo(result.info);
-        } catch {
-          /* ignore — fall back to File API below */
-        }
-      }
 
       // PDF metadata from pdf.js
       if (pdfDoc) {
@@ -106,11 +93,11 @@ export default function PropertiesDialog({ open, onClose, file, pdfDoc, numPages
     };
   }, [open, file, pdfDoc]);
 
-  const name = fileInfo?.name || file?.name || "—";
-  const filePath = fileInfo?.path || file?.path || "—";
-  const size = fileInfo?.size ?? file?.size ?? null;
-  const createdAt = fileInfo?.createdAt;
-  const modifiedAt = fileInfo?.modifiedAt;
+  const name = file?.name || "—";
+  const filePath = "—";
+  const size = file?.size ?? null;
+  const createdAt = null;
+  const modifiedAt = null;
   const info = pdfMeta?.info || {};
   const metadata = pdfMeta?.metadata || {};
   const titleValue = info.Title || getMetadataValue(metadata, "dc:title") || "—";

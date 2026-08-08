@@ -1,10 +1,10 @@
 # NocturaPDF
 
-A dark, focused PDF reader for long reads — built for the browser and packaged
-as a lightweight Windows desktop app.
+A dark, focused, offline-first PDF reader for the browser — installable as a
+Progressive Web App (PWA).
 
-NocturaPDF is intentionally minimal: no accounts, no cloud sync, no file
-management. Open a PDF and read it, with a dark mode that recolors the
+NocturaPDF is intentionally minimal: no account required for local reading, no
+forced cloud sync. Open a PDF and read it, with a dark mode that recolors the
 interface without distorting the page itself.
 
 ## Features
@@ -13,9 +13,9 @@ interface without distorting the page itself.
 - Canvas based rendering (pdf.js) with smooth scrolling and zoom
 - Tabs for reading multiple documents at once
 - Collapsible sidebar and a distraction-free focus mode
-- Fully offline, no account required
-- Desktop app (Electron) that opens straight into the reader, and a browser
-  version that shares the same reading engine
+- Offline-first PWA (installable, works without a network after first load)
+- Account is optional — local files stay on your device
+- Optional account for syncing your library across devices
 
 ## Technology stack
 
@@ -24,8 +24,12 @@ interface without distorting the page itself.
   hover states and media queries)
 - **PDF rendering:** [pdfjs-dist](https://github.com/mozilla/pdf.js), canvas
   based rendering with a color remapping layer for dark mode
-- **Desktop runtime:** Electron
-- **Build tooling:** Vite, electron-builder
+- **Runtime:** Progressive Web App with a service worker for offline support
+- **Local storage:** OPFS (Origin Private File System) for the Local Library,
+  IndexedDB for metadata
+- **Auth & cloud sync (optional):** Supabase (Authentication, PostgreSQL,
+  Storage)
+- **Build tooling:** Vite
 - **State management:** React Context + `useReducer`, no external state
   library
 
@@ -52,15 +56,17 @@ Run the app in the browser with hot reload:
 npm run dev
 ```
 
-Run the desktop (Electron) build against the dev server — in a second
-terminal, once `npm run dev` is running:
+### Optional Supabase setup
 
-```bash
-npm run electron
-```
+To enable accounts and cloud sync:
 
-The desktop app always opens directly into the reader, regardless of the
-web app's landing page.
+1. Create a project at [supabase.com](https://supabase.com).
+2. In Supabase, open **SQL Editor** and run the contents of
+   [`supabase/schema.sql`](supabase/schema.sql).
+3. Copy `.env.example` to `.env` and fill in your project URL and anon key.
+
+Without Supabase configured, the app still works — you can read PDFs locally
+with no account.
 
 ### Linting
 
@@ -70,29 +76,22 @@ npm run lint
 
 ## Building
 
-Build the web app for production:
+Build the PWA for production:
 
 ```bash
 npm run build
 ```
 
-Output is written to `dist/`.
-
-### Desktop installer
-
-Package the Windows installer with electron-builder:
-
-```bash
-npm run electron:build
-```
-
-The installer is written to `release/`. The app icon is generated from
-`build/icon.ico`.
+Output is written to `dist/`. The service worker and manifest enable
+installation as a PWA when served over HTTPS (or localhost).
 
 ## Project structure
 
 ```
-electron/         Electron main process, preload script, native menu
+public/
+  icons/           PWA icons (192, 512, maskable)
+  manifest.webmanifest   PWA manifest
+  sw.js            Service worker (offline caching)
 src/
   components/
     common/        Shared UI primitives (Button, Modal, PageShell, ...)
@@ -100,23 +99,16 @@ src/
     reader/        PDF viewing surface (PdfViewer, PageCanvas, EmptyState)
   features/
     darkmode/      Dark-mode color remapping engine for rendered pages
-  hooks/           React hooks (routing, keyboard shortcuts, theme, ...)
-  pages/           Public site pages (Home, About, Developers, Download)
-  services/        Persistence (localStorage-backed settings)
+  hooks/           React hooks (routing, keyboard shortcuts, theme, auth, ...)
+  pages/           Public site pages (Landing, About, Docs, Developers, Sign In/Up)
+  services/        Persistence (localStorage, OPFS, IndexedDB, Supabase)
   store/           App-wide state (open tabs, active document)
   utils/           Small shared helpers and constants
-build/             Application icon assets used by electron-builder
-public/            Static assets served as-is (favicon)
+supabase/
+  schema.sql       Supabase schema (run in SQL Editor)
+scripts/
+  generate-icons.ps1   Regenerates PWA icons from build/icon.png
 ```
-
-## Desktop application
-
-The desktop build is an Electron wrapper around the same React app and
-reading engine as the browser version. On launch it skips the marketing
-site entirely and opens directly into the PDF reader, behaving like a
-native reader app rather than a website. See [Building](#building) above
-for how to build the installer, or grab the latest release from the
-[Releases page](https://github.com/LamrotG/NocturaPDF/releases/latest).
 
 ## License
 

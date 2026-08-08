@@ -12,11 +12,11 @@ dist
 dist-ssr
 *.local
 
-# Electron build output
+# Build output
 release
 
 # Env files
-.env
+.env.local
 .env.*
 !.env.example
 
@@ -32,3 +32,6 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+supabase
+EXPLANATIONS.md

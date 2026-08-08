@@ -34,8 +34,8 @@ export default function DevelopersPage({ onNavigate }) {
         for the rules inline styles cannot express (hover states, media
         queries).
       </Term>
-      <Term label="Desktop Runtime">Electron.</Term>
-      <Term label="Build Tooling">Vite, Electron Builder.</Term>
+      <Term label="Runtime">Progressive Web App (PWA) — installable, offline-first.</Term>
+      <Term label="Build Tooling">Vite.</Term>
       <Term label="PDF Rendering">
         A pdf.js based rendering pipeline (pdfjs-dist), with canvas based page
         rendering and a color remapping layer for dark mode.
@@ -45,24 +45,27 @@ export default function DevelopersPage({ onNavigate }) {
         state library.
       </Term>
 
-      <h2 style={sectionTitleStyle}>Electron Architecture</h2>
+      <h2 style={sectionTitleStyle}>PWA Architecture</h2>
       <p style={paragraphStyle}>
-        NocturaPDF follows a standard Electron multi process architecture.
+        NocturaPDF is a Progressive Web App that runs entirely in the browser.
       </p>
-      <Term label="Main Process">
-        Handles application lifecycle, manages windows, and controls system
-        level interactions.
+      <Term label="App Shell">
+        A service worker caches the app shell for instant, offline-first
+        loading. The reader works fully offline once installed.
       </Term>
-      <Term label="Renderer Process">
-        Handles UI rendering, PDF viewing, and user interaction.
+      <Term label="Local Storage">
+        PDFs opened locally are read directly from the user's file system.
+        The Local Library uses OPFS (Origin Private File System) for
+        on-device persistence, and metadata lives in IndexedDB.
       </Term>
-      <Term label="Preload Layer">
-        A secure communication bridge between the main process and the
-        renderer, using context isolation for safety and stability.
+      <Term label="Cloud Sync (optional)">
+        Supabase handles authentication, the cloud library, and cross-device
+        metadata sync. An account is optional — local reading never requires
+        one.
       </Term>
       <Term label="Core Principle">
-        The renderer process is isolated from Node.js APIs. This keeps the app
-        secure, stable, and predictable.
+        The app is secure by default: no Node.js APIs, no native code, and
+        files stay on-device unless the user explicitly uploads them.
       </Term>
 
       <h2 style={sectionTitleStyle}>Performance Philosophy</h2>
@@ -93,7 +96,7 @@ export default function DevelopersPage({ onNavigate }) {
       </Term>
       <Term label="Contribution areas">
         UI and UX improvements, performance optimizations, bug fixes,
-        accessibility improvements, Electron stability and packaging.
+        accessibility improvements, PWA and service worker reliability.
       </Term>
       <p style={paragraphStyle}>
         Keep changes minimal, intentional, and aligned with the product

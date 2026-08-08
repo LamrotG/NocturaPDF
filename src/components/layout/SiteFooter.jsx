@@ -1,16 +1,7 @@
 import React from "react";
 
-const navLinkStyle = {
-  fontSize: 14,
-  color: "var(--text)",
-  background: "none",
-  border: "none",
-  padding: 0,
-  cursor: "pointer",
-};
-
-// Shared footer for every public page (Home, About, Developers, Download) so
-// navigation and branding stay identical across the site.
+// Shared footer for every public page (landing, About, Documentation,
+// Developers, sign in/up). No "Get App" link — the app is a PWA now.
 export default function SiteFooter({ onNavigate }) {
   const year = new Date().getFullYear();
   return (
@@ -29,9 +20,26 @@ export default function SiteFooter({ onNavigate }) {
       >
         <span>© {year} NocturaPDF</span>
 
-        <button style={navLinkStyle} onClick={() => onNavigate("/download")}>
-          Get App
-        </button>
+        <nav style={{ display: "flex", gap: 20 }}>
+          <button
+            style={{ fontSize: 13, color: "var(--text)", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            onClick={() => onNavigate("/about")}
+          >
+            About
+          </button>
+          <button
+            style={{ fontSize: 13, color: "var(--text)", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            onClick={() => onNavigate("/docs")}
+          >
+            Documentation
+          </button>
+          <button
+            style={{ fontSize: 13, color: "var(--text)", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            onClick={() => onNavigate("/developers")}
+          >
+            Developers
+          </button>
+        </nav>
       </div>
     </div>
   );

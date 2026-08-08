@@ -18,8 +18,9 @@ export default function AboutPage({ onNavigate }) {
         is judged by one question: does it help someone read.
       </p>
       <p style={paragraphStyle}>
-        NocturaPDF works fully offline, requires no account, and opens a file in
-        seconds. It is meant to be simple enough to forget you are using it.
+        NocturaPDF works fully offline, requires no account to read locally, and
+        opens a file in seconds. It is meant to be simple enough to forget you
+        are using it.
       </p>
 
       <h2 style={sectionTitleStyle}>Why NocturaPDF exists</h2>
@@ -43,7 +44,7 @@ export default function AboutPage({ onNavigate }) {
         <li>Canvas based rendering for smooth scrolling and zoom, even on large files</li>
         <li>Tabs for working across multiple documents at once</li>
         <li>A collapsible sidebar and focus mode for a distraction free layout</li>
-        <li>Fully offline reading with no account, sign up, or cloud dependency</li>
+        <li>Fully offline reading — an account is optional, and local files stay on your device</li>
       </ul>
 
       <h2 style={sectionTitleStyle}>Who it's for</h2>
@@ -60,9 +61,9 @@ export default function AboutPage({ onNavigate }) {
         NocturaPDF is meant to stay small on purpose. Growth means getting
         better at reading — faster rendering, a calmer dark mode, smoother
         navigation — rather than adding tools that pull focus away from the
-        page. The desktop app and the browser version share the same reading
-        engine today, and future work follows the same principle every
-        feature already has to answer to: does this help someone read.
+        page. The PWA runs in any modern browser and can be installed to your
+        device, and future work follows the same principle every feature
+        already has to answer to: does this help someone read.
       </p>
     </PageShell>
   );

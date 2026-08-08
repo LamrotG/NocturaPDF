@@ -1,36 +1,23 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import Modal from "../common/Modal.jsx";
 
-const APP_INFO_FALLBACK = {
+const APP_INFO = {
   name: "NocturaPDF",
-  version: "0.1.0",
+  version: "0.2.0",
   author: "Lamrot Gashaw",
   license: "MIT",
   website: "https://github.com/LamrotG/NocturaPDF",
 };
-const APP_DESCRIPTION = "A dark, focused, offline PDF reader";
+const APP_DESCRIPTION = "A dark, focused, offline-first PDF reader for the browser.";
 
 // Displays application information: name, version, author, license, and
-// runtime details (Electron/Chrome/Node versions) when running in Electron.
+// runtime details (browser/OS) for the PWA.
 export default function AboutDialog({ open, onClose }) {
-  const [appInfo, setAppInfo] = useState(APP_INFO_FALLBACK);
-
-  useEffect(() => {
-    if (!open) return;
-    if (window.nocturaPdf?.getAppInfo) {
-      window.nocturaPdf
-        .getAppInfo()
-        .then((result) => {
-          if (result.success) {
-            setAppInfo((prev) => ({ ...prev, ...result.info }));
-          }
-        })
-        .catch(() => {});
-    }
-  }, [open]);
+  const platform = typeof navigator !== "undefined" ? navigator.platform : "";
+  const browser = typeof navigator !== "undefined" ? navigator.userAgent : "";
 
   return (
-    <Modal open={open} onClose={onClose} title={`About ${appInfo.name}`} width={440}>
+    <Modal open={open} onClose={onClose} title={`About ${APP_INFO.name}`} width={440}>
       <div style={{ textAlign: "center", marginBottom: 20 }}>
         <div
           style={{
@@ -50,10 +37,10 @@ export default function AboutDialog({ open, onClose }) {
           N
         </div>
         <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 600, color: "var(--text-h)" }}>
-          {appInfo.name}
+          {APP_INFO.name}
         </h2>
         <p style={{ color: "var(--text)", fontSize: 14, margin: "0 0 4px" }}>
-          Version {appInfo.version}
+          Version {APP_INFO.version}
         </p>
         <p style={{ color: "var(--text)", fontSize: 13, margin: 0 }}>
           {APP_DESCRIPTION}
@@ -68,35 +55,25 @@ export default function AboutDialog({ open, onClose }) {
       >
         <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
           <span style={{ color: "var(--text)" }}>Author</span>
-          <span style={{ color: "var(--text-h)" }}>{appInfo.author}</span>
+          <span style={{ color: "var(--text-h)" }}>{APP_INFO.author}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
           <span style={{ color: "var(--text)" }}>License</span>
-          <span style={{ color: "var(--text-h)" }}>{appInfo.license}</span>
+          <span style={{ color: "var(--text-h)" }}>{APP_INFO.license}</span>
         </div>
-        {appInfo.electron && (
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
+          <span style={{ color: "var(--text)" }}>Platform</span>
+          <span style={{ color: "var(--text-h)" }}>{platform}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
+          <span style={{ color: "var(--text)" }}>Runtime</span>
+          <span style={{ color: "var(--text-h)" }}>PWA</span>
+        </div>
+        {browser && (
           <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
-            <span style={{ color: "var(--text)" }}>Electron</span>
-            <span style={{ color: "var(--text-h)" }}>{appInfo.electron}</span>
-          </div>
-        )}
-        {appInfo.chrome && (
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
-            <span style={{ color: "var(--text)" }}>Chrome</span>
-            <span style={{ color: "var(--text-h)" }}>{appInfo.chrome}</span>
-          </div>
-        )}
-        {appInfo.node && (
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
-            <span style={{ color: "var(--text)" }}>Node.js</span>
-            <span style={{ color: "var(--text-h)" }}>{appInfo.node}</span>
-          </div>
-        )}
-        {appInfo.platform && (
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
-            <span style={{ color: "var(--text)" }}>Platform</span>
-            <span style={{ color: "var(--text-h)" }}>
-              {appInfo.platform} {appInfo.arch}
+            <span style={{ color: "var(--text)" }}>Browser</span>
+            <span style={{ color: "var(--text-h)", textAlign: "right", wordBreak: "break-all" }}>
+              {browser.slice(0, 80)}…
             </span>
           </div>
         )}
@@ -104,22 +81,16 @@ export default function AboutDialog({ open, onClose }) {
 
       <div style={{ marginTop: 20, textAlign: "center" }}>
         <a
-          href={appInfo.website}
-          onClick={(e) => {
-            e.preventDefault();
-            if (window.nocturaPdf?.openExternal) {
-              window.nocturaPdf.openExternal(appInfo.website);
-            } else {
-              window.open(appInfo.website, "_blank");
-            }
-          }}
+          href={APP_INFO.website}
+          target="_blank"
+          rel="noreferrer"
           style={{
             color: "var(--accent)",
             fontSize: 13,
             textDecoration: "none",
           }}
         >
-          {appInfo.website}
+          {APP_INFO.website}
         </a>
       </div>
     </Modal>

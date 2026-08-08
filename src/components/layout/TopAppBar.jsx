@@ -29,12 +29,9 @@ export default function TopAppBar({
   onToggleFullscreen,
   // Menu actions
   hasDoc,
-  hasFilePath,
-  isElectron,
   recentFiles,
   onOpenRecent,
   onClearRecent,
-  onShowInFolder,
   onSave,
   onSaveAs,
   onPrint,
@@ -55,8 +52,10 @@ export default function TopAppBar({
   onVisitWebsite,
   onUserManual,
   onKeyboardShortcuts,
-  onCheckForUpdates,
   onAbout,
+  isSignedIn,
+  profileName,
+  onProfile,
 }) {
   const ThemeIcon = UI_THEME_ICONS[uiThemeId] || UI_THEME_ICONS.system;
 
@@ -84,10 +83,8 @@ export default function TopAppBar({
         : [{ label: "No Recent Files", disabled: true }],
     },
     { separator: true },
-    { label: "Show in Folder", onClick: onShowInFolder, disabled: !hasFilePath || !isElectron },
-    { separator: true },
-    { label: "Save", shortcut: `${MOD}+S`, onClick: onSave, disabled: !hasDoc || !isElectron },
-    { label: "Save As…", shortcut: `${MOD}+${SHIFT}+S`, onClick: onSaveAs, disabled: !hasDoc || !isElectron },
+    { label: "Save", shortcut: `${MOD}+S`, onClick: onSave, disabled: !hasDoc },
+    { label: "Save As…", shortcut: `${MOD}+${SHIFT}+S`, onClick: onSaveAs, disabled: !hasDoc },
     { separator: true },
     { label: "Print…", shortcut: `${MOD}+P`, onClick: onPrint, disabled: !hasDoc },
     { separator: true },
@@ -130,8 +127,6 @@ export default function TopAppBar({
     { label: "Visit Website", onClick: onVisitWebsite },
     { label: "User Manual", onClick: onUserManual },
     { label: "Keyboard Shortcuts", onClick: onKeyboardShortcuts },
-    { separator: true },
-    { label: "Check for Updates", onClick: onCheckForUpdates, disabled: !isElectron },
     { separator: true },
     { label: "About", onClick: onAbout },
   ];
@@ -207,6 +202,48 @@ export default function TopAppBar({
         >
           {isFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
         </IconButton>
+        {isSignedIn ? (
+          <button
+            type="button"
+            onClick={onProfile}
+            title={`Signed in as ${profileName || "user"} — click for profile settings`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 12px",
+              fontSize: 13,
+              fontWeight: 600,
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: "var(--code-bg)",
+              color: "var(--text-h)",
+              cursor: "pointer",
+            }}
+          >
+            {profileName || "Account"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => (window.location.href = "/signin")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 12px",
+              fontSize: 13,
+              fontWeight: 600,
+              borderRadius: 8,
+              border: "1px solid var(--accent)",
+              background: "var(--accent)",
+              color: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            Sign In
+          </button>
+        )}
       </div>
     </div>
   );

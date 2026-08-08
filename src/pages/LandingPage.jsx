@@ -19,8 +19,8 @@ const FEATURES = [
   },
   {
     icon: NoAccountIcon,
-    title: "No Account Required",
-    description: "Open a file and start reading. No sign up, no login.",
+    title: "Account is optional, files stay local.",
+    description: "Read PDFs without signing in — your files never leave your device.",
   },
   {
     icon: InstantIcon,
@@ -87,7 +87,7 @@ function Hero({ onStartReading, onNavigate }) {
           Start Reading in Browser
         </button>
         <button
-          onClick={() => onNavigate("/download")}
+          onClick={() => onNavigate("/signin")}
           style={{
             padding: "12px 24px",
             fontSize: 15,
@@ -99,7 +99,7 @@ function Hero({ onStartReading, onNavigate }) {
             cursor: "pointer",
           }}
         >
-          Get App
+          Sign In
         </button>
       </div>
     </div>
