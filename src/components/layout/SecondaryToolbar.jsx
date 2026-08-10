@@ -1,20 +1,22 @@
-import React from "react";
-import Button from "../common/Button.jsx";
+import React, { useState } from "react";
 import IconButton from "../common/IconButton.jsx";
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "../../utils/constants.js";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronDownIcon,
   FitPageIcon,
   FitWidthIcon,
   SearchIcon,
   SidebarIcon,
   ZoomInIcon,
   ZoomOutIcon,
+  FullscreenIcon,
+  FullscreenExitIcon,
 } from "../common/icons.jsx";
 
 // Thin, utility-only bar directly below the tab strip: page nav, zoom, fit
-// mode, search entry, and PDF color mode. No branding, no heavy UI.
+// mode, search entry, PDF theme selector, and fullscreen. No branding.
 export default function SecondaryToolbar({
   sidebarCollapsed,
   onToggleSidebar,
@@ -29,7 +31,12 @@ export default function SecondaryToolbar({
   colorModes,
   colorModeId,
   onColorModeChange,
+  isFullscreen,
+  onToggleFullscreen,
 }) {
+  const [pageInput, setPageInput] = useState("");
+  const [themeOpen, setThemeOpen] = useState(false);
+
   const zoomIn = () => {
     onFitModeChange("custom");
     onZoomChange(Math.min(MAX_SCALE, +(zoomFactor + ZOOM_STEP).toFixed(2)));
@@ -43,13 +50,20 @@ export default function SecondaryToolbar({
     onZoomChange(1);
   };
 
-  const handlePageInput = (e) => {
-    const value = Number(e.target.value);
+  const handlePageInputChange = (e) => {
+    setPageInput(e.target.value);
+  };
+
+  const handlePageInputKeyDown = (e) => {
+    if (e.key !== "Enter") return;
+    const value = Number(pageInput);
     if (!value || value < 1 || value > numPages) return;
     onJumpToPage(value);
+    setPageInput("");
   };
 
   const hasDoc = numPages > 0;
+  const currentMode = colorModes.find((m) => m.id === colorModeId) || colorModes[0];
 
   return (
     <div
@@ -86,8 +100,9 @@ export default function SecondaryToolbar({
               type="number"
               min={1}
               max={numPages}
-              value={currentPage || 1}
-              onChange={handlePageInput}
+              value={pageInput || currentPage || 1}
+              onChange={handlePageInputChange}
+              onKeyDown={handlePageInputKeyDown}
               style={{
                 width: 48,
                 padding: "4px 6px",
@@ -156,14 +171,85 @@ export default function SecondaryToolbar({
         </>
       )}
 
-      <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
-        {colorModes.map((m) => (
-          <Button key={m.id} active={colorModeId === m.id} onClick={() => onColorModeChange(m.id)}>
-            {m.label}
-          </Button>
-        ))}
+      {/* Right side: PDF theme selector + fullscreen */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+        {/* PDF theme dropdown */}
+        <div
+          style={{ position: "relative" }}
+          onMouseEnter={() => setThemeOpen(true)}
+          onMouseLeave={() => setTimeout(() => setThemeOpen(false), 150)}
+        >
+          <button
+            onClick={() => setThemeOpen((v) => !v)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 10px",
+              fontSize: 12,
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--code-bg)",
+              color: "var(--text-h)",
+              cursor: "pointer",
+            }}
+          >
+            <span style={{ opacity: 0.6 }}>Off</span>
+            <span style={{ fontWeight: 600 }}>{currentMode?.label || "Off"}</span>
+            <ChevronDownIcon size={14} />
+          </button>
+          {themeOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                right: 0,
+                minWidth: 140,
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+                padding: 6,
+                zIndex: 50,
+              }}
+            >
+              {colorModes.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    onColorModeChange(m.id);
+                    setThemeOpen(false);
+                  }}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "6px 10px",
+                    fontSize: 13,
+                    border: "none",
+                    borderRadius: 6,
+                    background: m.id === colorModeId ? "var(--accent-bg)" : "none",
+                    color: m.id === colorModeId ? "var(--accent)" : "var(--text-h)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Fullscreen toggle */}
+        <IconButton
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          active={isFullscreen}
+          onClick={onToggleFullscreen}
+        >
+          {isFullscreen ? <FullscreenExitIcon size={18} /> : <FullscreenIcon size={18} />}
+        </IconButton>
       </div>
     </div>
   );
 }
-

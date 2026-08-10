@@ -4,16 +4,19 @@ import { PdfColorModeProvider, usePdfColorMode } from "./hooks/usePdfColorMode.j
 import { AppStoreProvider, useAppStore } from "./store/appstore.js";
 import { AuthProvider, useAuth } from "./hooks/useAuth.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
-import { useRoute } from "./hooks/useRoute.js";
+import { useRoute, isStandalonePwa } from "./hooks/useRoute.js";
 import { getSidebarCollapsed, setSidebarCollapsed as persistSidebarCollapsed } from "./services/settingService.js";
-import { addRecentFile, getRecentFiles, removeRecentFile, clearRecentFiles } from "./services/recentFilesService.js";
 import { themeToCssVars } from "./utils/themeCssVars.js";
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./utils/constants.js";
+import { recordDocumentOpen, createDebouncedPositionSaver } from "./persistence/index.js";
 import TopAppBar from "./components/layout/TopAppBar.jsx";
 import SecondaryToolbar from "./components/layout/SecondaryToolbar.jsx";
 import Sidebar from "./components/layout/Sidebar.jsx";
 import PdfViewer from "./components/reader/PdfViewer.jsx";
-import EmptyState from "./components/reader/EmptyState.jsx";
+import ReaderHome from "./components/reader/ReaderHome.jsx";
+import PdfSearch from "./components/reader/PdfSearch.jsx";
+import TextSelectionActions from "./components/reader/TextSelectionActions.jsx";
+import SettingsPage from "./pages/SettingsPage.jsx";
 import LandingPage from "./pages/LandingPage.jsx";
 import AboutPage from "./pages/AboutPage.jsx";
 import DevelopersPage from "./pages/DevelopersPage.jsx";
@@ -29,14 +32,15 @@ import AboutDialog from "./components/dialogs/AboutDialog.jsx";
 const APP_WEBSITE = "https://github.com/LamrotG/NocturaPDF";
 const USER_MANUAL_URL = "https://github.com/LamrotG/NocturaPDF#readme";
 
-function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate }) {
-  const { uiThemeId, resolvedTheme, setUiThemeId } = useUiTheme();
+function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNavigateReader, onNavigate }) {
+  const { resolvedTheme } = useUiTheme();
   const { colorModeId, setColorModeId, colorMode, lut, colorModes } = usePdfColorMode();
-  const { tabs, activeTabId, activeTab, openTab, closeTab, setActiveTab } = useAppStore();
+  const { tabs, activeTabId, activeTab, openTab, closeTab, setActiveTab, updateTab } = useAppStore();
   const { isSignedIn, profile } = useAuth();
 
   const rootRef = useRef(null);
   const fileInputRef = useRef(null);
+  const viewerContainerRef = useRef(null);
 
   const [zoomFactor, setZoomFactor] = useState(1);
   const [fitMode, setFitMode] = useState("width");
@@ -45,13 +49,16 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
   const [pdfDoc, setPdfDoc] = useState(null);
   const [scrollRequest, setScrollRequest] = useState(null);
   const [rotation, setRotation] = useState(0);
+  const [documentId, setDocumentId] = useState(null);
+  const [initialScrollPosition, setInitialScrollPosition] = useState(null);
+  const [activeView, setActiveView] = useState("recent");
 
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() => getSidebarCollapsed());
   const [focusMode, setFocusMode] = useState(false);
   const [presentationMode, setPresentationMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [recentFiles, setRecentFiles] = useState(() => getRecentFiles());
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Dialog state
   const [showProperties, setShowProperties] = useState(false);
@@ -59,6 +66,12 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
   const [showAbout, setShowAbout] = useState(false);
 
   const hasDoc = Boolean(activeTab);
+
+  // Debounced reading-position saver — never writes on every scroll event.
+  const positionSaverRef = useRef(null);
+  if (positionSaverRef.current == null) {
+    positionSaverRef.current = createDebouncedPositionSaver({ delayMs: 800 });
+  }
 
   // Each tab reloads its own pdf.js document independently (inactive tabs are
   // fully unmounted, see PdfViewer's `key`), so reset derived reader state
@@ -75,6 +88,9 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
     setPdfDoc(null);
     setScrollRequest(null);
     setRotation(0);
+    setDocumentId(null);
+    setInitialScrollPosition(null);
+    setSearchOpen(false);
   }
 
   // Mirrors the real browser fullscreen state — Esc can exit native
@@ -86,7 +102,29 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
 
-  const handleOpenFile = useCallback((file) => openTab(file, file.name), [openTab]);
+  // Flush reading position on page hide / unload.
+  useEffect(() => {
+    const flush = () => {
+      positionSaverRef.current?.flushNow();
+    };
+    document.addEventListener("visibilitychange", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, []);
+
+  const handleOpenFile = useCallback(
+    async (file, existingDoc) => {
+      // Open the tab immediately so the UI responds fast.
+      openTab(file, file.name, existingDoc?.id || null, existingDoc?.readingPosition || null);
+      if (showHomeView) {
+        onNavigateReader?.();
+      }
+    },
+    [openTab, showHomeView, onNavigateReader]
+  );
 
   const handleNavigateToReader = useCallback(() => {
     onNavigateReader?.();
@@ -94,6 +132,8 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
 
   const handleSelectTab = useCallback(
     (id) => {
+      // Flush the current tab's reading position before switching.
+      positionSaverRef.current?.flushNow();
       setActiveTab(id);
       if (showHomeView) {
         handleNavigateToReader();
@@ -121,80 +161,56 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
     e.target.value = "";
   };
 
-  // Generate a thumbnail from the first page of a PDF
-  const generateThumbnail = useCallback(async (pdfDocument) => {
-    if (!pdfDocument || pdfDocument.numPages < 1) {
-      return "";
-    }
-
-    try {
-      const page = await pdfDocument.getPage(1);
-      const scale = 0.2; // Small thumbnail
-      const viewport = page.getViewport({ scale });
-
-      // Create canvas for rendering
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-
-      // Render page to canvas
-      const context = canvas.getContext("2d");
-      const renderTask = page.render({
-        canvasContext: context,
-        viewport: viewport,
-      });
-
-      await renderTask.promise;
-
-      // Convert to base64 data URL
-      return canvas.toDataURL("image/jpeg", 0.7);
-    } catch (e) {
-      console.warn("Failed to generate PDF thumbnail:", e);
-      return "";
-    }
-  }, []);
-
   // Track recently opened file when PDF is loaded
   const handleDocumentLoad = useCallback(
     async (pdfDocument) => {
       setPdfDoc(pdfDocument);
-      
-      // Generate and save thumbnail if we have an active tab
+
       if (activeTab && pdfDocument) {
         try {
-          const thumbnail = await generateThumbnail(pdfDocument);
-          const updated = addRecentFile(activeTab.file, thumbnail);
-          setRecentFiles(updated);
+          // Resolve persistent document identity + record the open.
+          const record = await recordDocumentOpen(activeTab.file, pdfDocument);
+          setDocumentId(record.id);
+          updateTab(activeTab.id, { documentId: record.id });
+
+          // Restore reading position if we have one.
+          const pos = record.readingPosition;
+          if (pos) {
+            setInitialScrollPosition(pos);
+            if (pos.zoom) {
+              setZoomFactor(pos.zoom);
+              setFitMode("custom");
+            }
+            if (pos.rotation) {
+              setRotation(pos.rotation);
+            }
+            if (pos.page) {
+              setCurrentPage(pos.page);
+              setScrollRequest({ page: pos.page, id: Date.now() });
+            }
+          }
         } catch (e) {
-          console.warn("Error tracking recent file:", e);
+          console.warn("Error recording document:", e);
         }
       }
     },
-    [activeTab, generateThumbnail]
+    [activeTab, updateTab]
   );
 
-  // Handle opening a file from recent files
-  const handleOpenRecentFile = useCallback(
-    () => {
-      // In the PWA, recent files are just metadata — the actual bytes are
-      // either in OPFS (Local Library) or re-picked by the user. For now,
-      // open the file picker so the user can re-select the file.
-      handleOpenFileDialog();
+  const handleScrollPositionChange = useCallback(
+    (y) => {
+      if (documentId) {
+        positionSaverRef.current?.schedule(documentId, {
+          page: currentPage,
+          x: 0,
+          y,
+          zoom: zoomFactor,
+          rotation,
+        });
+      }
     },
-    [handleOpenFileDialog]
+    [documentId, currentPage, zoomFactor, rotation]
   );
-
-  // Handle removing a file from recent files list
-  const handleRemoveRecentFile = useCallback((fileId) => {
-    const updated = removeRecentFile(fileId);
-    setRecentFiles(updated);
-  }, []);
-
-  // Handle clearing all recent files
-  const handleClearRecentFiles = useCallback(() => {
-    clearRecentFiles();
-    setRecentFiles([]);
-  }, []);
 
   const handleJumpToPage = useCallback((page) => {
     setCurrentPage(page);
@@ -313,18 +329,38 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
     window.open(USER_MANUAL_URL, "_blank");
   }, []);
 
+  const handleOpenSearch = useCallback(() => {
+    setSearchOpen(true);
+  }, []);
+
+  const handleSearchFromSelection = useCallback((text) => {
+    setSearchQuery(text);
+    setSearchOpen(true);
+  }, []);
+
+  const handleCloseTab = useCallback(
+    (id) => {
+      // Flush reading position before closing.
+      positionSaverRef.current?.flushNow();
+      closeTab(id);
+    },
+    [closeTab]
+  );
+
   useKeyboard({
     onPrevPage: () => handleJumpToPage(Math.max(1, currentPage - 1)),
     onNextPage: () => handleJumpToPage(Math.min(Math.max(numPages, 1), currentPage + 1)),
+    onFirstPage: () => handleJumpToPage(1),
+    onLastPage: () => handleJumpToPage(Math.max(numPages, 1)),
     onZoomIn: handleZoomIn,
     onZoomOut: handleZoomOut,
     onZoomReset: handleZoomReset,
     onToggleFocusMode: handleToggleFocusMode,
-    onOpenSearch: () => setSearchOpen(true),
+    onOpenSearch: handleOpenSearch,
     onFindNext: () => {},
     onFindPrevious: () => {},
     onOpenFile: handleOpenFileDialog,
-    onCloseTab: () => activeTabId && closeTab(activeTabId),
+    onCloseTab: () => activeTabId && handleCloseTab(activeTabId),
     onSave: handleSave,
     onSaveAs: handleSaveAs,
     onPrint: handlePrint,
@@ -374,21 +410,20 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
             tabs={tabs}
             activeTabId={activeTabId}
             onSelectTab={handleSelectTab}
-            onCloseTab={closeTab}
+            onCloseTab={handleCloseTab}
             onAddTab={handleOpenFileDialog}
-            uiThemeId={uiThemeId}
-            setUiThemeId={setUiThemeId}
+            onGoHome={onGoHome}
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
             hasDoc={hasDoc}
-            recentFiles={recentFiles}
-            onOpenRecent={handleOpenRecentFile}
-            onClearRecent={handleClearRecentFiles}
+            recentFiles={[]}
+            onOpenRecent={() => {}}
+            onClearRecent={() => {}}
             onSave={handleSave}
             onSaveAs={handleSaveAs}
             onPrint={handlePrint}
             onProperties={() => setShowProperties(true)}
-            onFind={() => setSearchOpen(true)}
+            onFind={handleOpenSearch}
             onFindNext={() => {}}
             onFindPrevious={() => {}}
             onZoomIn={handleZoomIn}
@@ -405,10 +440,6 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
             onUserManual={handleUserManual}
             onKeyboardShortcuts={() => setShowShortcuts(true)}
             onAbout={() => setShowAbout(true)}
-            onGoHome={onGoHome}
-            isSignedIn={isSignedIn}
-            profileName={profile?.name}
-            onProfile={() => onNavigate("/profile")}
           />
 
           <SecondaryToolbar
@@ -421,63 +452,40 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
             onZoomChange={setZoomFactor}
             fitMode={fitMode}
             onFitModeChange={handleFitModeChange}
-            onOpenSearch={() => setSearchOpen(true)}
+            onOpenSearch={handleOpenSearch}
             colorModes={colorModes}
             colorModeId={colorModeId}
             onColorModeChange={setColorModeId}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={handleToggleFullscreen}
           />
         </>
       )}
 
       <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
-        <Sidebar
-          pdfDoc={pdfDoc}
-          numPages={numPages}
-          currentPage={currentPage}
-          onJumpToPage={handleJumpToPage}
-          colorMode={colorMode}
-          lut={lut}
-          collapsed={effectiveSidebarCollapsed}
-        />
+        {!showHomeView && (
+          <Sidebar
+            pdfDoc={pdfDoc}
+            numPages={numPages}
+            currentPage={currentPage}
+            onJumpToPage={handleJumpToPage}
+            colorMode={colorMode}
+            lut={lut}
+            collapsed={effectiveSidebarCollapsed}
+          />
+        )}
 
-        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-          {searchOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: 12,
-                right: 12,
-                zIndex: 10,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "8px 12px",
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--bg)",
-                boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
-              }}
-            >
-              <input
-                autoFocus
-                placeholder="Search (coming soon)"
-                disabled
-                style={{
-                  border: "none",
-                  background: "none",
-                  color: "var(--text-h)",
-                  fontSize: 13,
-                  width: 180,
-                }}
-              />
-              <button
-                onClick={() => setSearchOpen(false)}
-                aria-label="Close search"
-                style={{ border: "none", background: "none", color: "var(--text)", cursor: "pointer" }}
-              >
-                ×
-              </button>
-            </div>
+        <div
+          ref={viewerContainerRef}
+          style={{ flex: 1, minWidth: 0, position: "relative" }}
+        >
+          {searchOpen && !showHomeView && pdfDoc && (
+            <PdfSearch
+              pdfDoc={pdfDoc}
+              onJumpToPage={handleJumpToPage}
+              onClose={() => setSearchOpen(false)}
+              initialQuery={searchQuery}
+            />
           )}
 
           {!showHomeView && activeTab ? (
@@ -492,26 +500,37 @@ function Shell({ showHomeView = false, onGoHome, onNavigateReader, onNavigate })
               onCurrentPageChange={setCurrentPage}
               onNumPagesChange={setNumPages}
               onDocumentLoad={handleDocumentLoad}
+              onScrollPositionChange={handleScrollPositionChange}
               scrollRequest={scrollRequest}
               rotation={rotation}
+              initialScrollPosition={initialScrollPosition}
             />
           ) : null}
 
-          {showHomeView ? (
-            <EmptyState
+          {showSettingsView ? (
+            <SettingsPage onNavigate={onNavigate} />
+          ) : showHomeView || !activeTab ? (
+            <ReaderHome
               onOpenFile={handleOpenFileDialog}
-              recentFiles={recentFiles}
-              onRemoveRecentFile={handleRemoveRecentFile}
+              onOpenDocument={handleOpenFile}
+              activeView={activeView}
+              onSelectView={setActiveView}
+              onOpenSettings={() => onNavigate("/settings")}
+              onOpenProfile={() => onNavigate("/profile")}
+              onSignIn={() => onNavigate("/signin")}
+              isSignedIn={isSignedIn}
+              profile={profile}
             />
           ) : null}
 
-          {!showHomeView && !activeTab ? (
-            <EmptyState
-              onOpenFile={handleOpenFileDialog}
-              recentFiles={recentFiles}
-              onRemoveRecentFile={handleRemoveRecentFile}
+          {!showHomeView && activeTab && (
+            <TextSelectionActions
+              containerRef={viewerContainerRef}
+              documentId={documentId}
+              currentPage={currentPage}
+              onSearch={handleSearchFromSelection}
             />
-          ) : null}
+          )}
         </div>
       </div>
 
@@ -540,14 +559,17 @@ function AppRoot() {
   const { resolvedTheme } = useUiTheme();
   const cssVars = useMemo(() => themeToCssVars(resolvedTheme), [resolvedTheme]);
 
-  // The reader is the app itself — the logo in the corner serves as "home".
-  if (path.startsWith("/app")) {
+  // Installed PWA opens directly into the reader — never the marketing site.
+  const standalone = isStandalonePwa();
+  const effectivePath = standalone && path === "/" ? "/app" : path;
+
+  if (effectivePath.startsWith("/app")) {
     return (
       <PdfColorModeProvider>
         <AppStoreProvider>
           <Shell
             showHomeView={false}
-            onGoHome={() => navigate("/")}
+            onGoHome={() => navigate("/app")}
             onNavigateReader={() => navigate("/app")}
             onNavigate={navigate}
           />
@@ -556,7 +578,23 @@ function AppRoot() {
     );
   }
 
-  if (path.startsWith("/about")) {
+  if (effectivePath.startsWith("/settings")) {
+    return (
+      <PdfColorModeProvider>
+        <AppStoreProvider>
+          <Shell
+            showSettingsView={true}
+            showHomeView={true}
+            onGoHome={() => navigate("/app")}
+            onNavigateReader={() => navigate("/app")}
+            onNavigate={navigate}
+          />
+        </AppStoreProvider>
+      </PdfColorModeProvider>
+    );
+  }
+
+  if (effectivePath.startsWith("/about")) {
     return (
       <div style={cssVars}>
         <AboutPage onNavigate={navigate} />
@@ -564,7 +602,7 @@ function AppRoot() {
     );
   }
 
-  if (path.startsWith("/docs")) {
+  if (effectivePath.startsWith("/docs")) {
     return (
       <div style={cssVars}>
         <DocumentationPage onNavigate={navigate} />
@@ -572,7 +610,7 @@ function AppRoot() {
     );
   }
 
-  if (path.startsWith("/developers")) {
+  if (effectivePath.startsWith("/developers")) {
     return (
       <div style={cssVars}>
         <DevelopersPage onNavigate={navigate} />
@@ -580,7 +618,7 @@ function AppRoot() {
     );
   }
 
-  if (path.startsWith("/signin")) {
+  if (effectivePath.startsWith("/signin")) {
     return (
       <div style={cssVars}>
         <SignInPage onNavigate={navigate} />
@@ -588,7 +626,7 @@ function AppRoot() {
     );
   }
 
-  if (path.startsWith("/signup")) {
+  if (effectivePath.startsWith("/signup")) {
     return (
       <div style={cssVars}>
         <SignUpPage onNavigate={navigate} />
@@ -596,7 +634,7 @@ function AppRoot() {
     );
   }
 
-  if (path.startsWith("/reset-password")) {
+  if (effectivePath.startsWith("/reset-password")) {
     return (
       <div style={cssVars}>
         <ResetPasswordPage onNavigate={navigate} />
@@ -604,7 +642,7 @@ function AppRoot() {
     );
   }
 
-  if (path.startsWith("/profile")) {
+  if (effectivePath.startsWith("/profile")) {
     return (
       <div style={cssVars}>
         <ProfileSettingsPage onNavigate={navigate} />

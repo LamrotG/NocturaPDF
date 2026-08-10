@@ -11,7 +11,13 @@ function nextId() {
 function reducer(state, action) {
   switch (action.type) {
     case "OPEN_TAB": {
-      const tab = { id: nextId(), file: action.file, name: action.name };
+      const tab = {
+        id: nextId(),
+        file: action.file,
+        name: action.name,
+        documentId: action.documentId || null,
+        readingPosition: action.readingPosition || null,
+      };
       return { tabs: [...state.tabs, tab], activeTabId: tab.id };
     }
     case "CLOSE_TAB": {
@@ -28,6 +34,12 @@ function reducer(state, action) {
     }
     case "SET_ACTIVE_TAB":
       return { ...state, activeTabId: action.id };
+    case "UPDATE_TAB": {
+      const tabs = state.tabs.map((t) =>
+        t.id === action.id ? { ...t, ...action.patch } : t
+      );
+      return { ...state, tabs };
+    }
     default:
       return state;
   }
@@ -39,12 +51,17 @@ export function AppStoreProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, { tabs: [], activeTabId: null });
 
   const openTab = useCallback(
-    (file, name) => dispatch({ type: "OPEN_TAB", file, name }),
+    (file, name, documentId, readingPosition) =>
+      dispatch({ type: "OPEN_TAB", file, name, documentId, readingPosition }),
     []
   );
   const closeTab = useCallback((id) => dispatch({ type: "CLOSE_TAB", id }), []);
   const setActiveTab = useCallback(
     (id) => dispatch({ type: "SET_ACTIVE_TAB", id }),
+    []
+  );
+  const updateTab = useCallback(
+    (id, patch) => dispatch({ type: "UPDATE_TAB", id, patch }),
     []
   );
 
@@ -58,8 +75,9 @@ export function AppStoreProvider({ children }) {
       openTab,
       closeTab,
       setActiveTab,
+      updateTab,
     }),
-    [state.tabs, state.activeTabId, activeTab, openTab, closeTab, setActiveTab]
+    [state.tabs, state.activeTabId, activeTab, openTab, closeTab, setActiveTab, updateTab]
   );
 
   return React.createElement(AppStoreContext.Provider, { value }, children);

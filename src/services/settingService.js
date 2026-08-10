@@ -4,6 +4,7 @@ import { DEFAULT_UI_THEME_ID, DEFAULT_PDF_COLOR_MODE_ID } from "../utils/constan
 const UI_THEME_KEY = "ui-theme";
 const PDF_COLOR_MODE_KEY = "pdf-color-mode";
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
+const RECENT_VIEW_KEY = "recent-view";
 
 export function getUiTheme() {
   return storageService.get(UI_THEME_KEY, DEFAULT_UI_THEME_ID);
@@ -29,4 +30,13 @@ export function getSidebarCollapsed() {
 
 export function setSidebarCollapsed(collapsed) {
   storageService.set(SIDEBAR_COLLAPSED_KEY, collapsed);
+}
+
+// Recent files view preference: "grid" (thumbnails) or "list".
+export function getRecentView() {
+  return storageService.get(RECENT_VIEW_KEY, "grid");
+}
+
+export function setRecentView(view) {
+  storageService.set(RECENT_VIEW_KEY, view);
 }

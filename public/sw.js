@@ -5,14 +5,22 @@
  *  - Cross-origin (Supabase API, Google auth) → network-first, never cached
  *    (auth responses must stay fresh; PDFs fetched from Supabase storage are
  *    streamed and not stored in the cache to avoid quota issues).
+ *  - Navigation requests (/, /app, /about, …) → network-first with cache
+ *    fallback to /index.html so the SPA shell loads offline.
  *  - Caches are versioned so a new deploy discards stale entries.
+ *
+ * Responsibilities are separated:
+ *   Service Worker → application assets / app shell
+ *   IndexedDB      → user documents / metadata / reading state / annotations
+ *   OPFS           → local PDF binaries
  */
 
-const CACHE_VERSION = "nocturapdf-v1";
+const CACHE_VERSION = "nocturapdf-v2";
 const APP_SHELL_CACHE = `${CACHE_VERSION}-shell`;
 
 const APP_SHELL_PATHS = [
   "/",
+  "/app",
   "/index.html",
   "/manifest.webmanifest",
   "/favicon.svg",
@@ -39,6 +47,11 @@ function isAppShellRequest(request) {
     path.endsWith(".woff2") ||
     path.endsWith(".woff")
   );
+}
+
+// Any same-origin navigation (SPA route) falls back to cached index.html.
+function isNavigationRequest(request) {
+  return request.mode === "navigate";
 }
 
 self.addEventListener("install", (event) => {
@@ -85,6 +98,25 @@ self.addEventListener("fetch", (event) => {
     url.hostname.includes("github") ||
     url.hostname.includes("oauth")
   ) {
+    return;
+  }
+
+  // Navigation requests (SPA routes) — network-first, fall back to cached
+  // index.html so the app shell is always available offline.
+  if (isNavigationRequest(request)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(APP_SHELL_CACHE).then((cache) => cache.put("/index.html", clone));
+          }
+          return response;
+        })
+        .catch(() =>
+          caches.match(request).then((cached) => cached || caches.match("/index.html"))
+        )
+    );
     return;
   }
 

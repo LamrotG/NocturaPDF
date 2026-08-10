@@ -12,6 +12,8 @@ function isTypingTarget(el) {
 export function useKeyboard({
   onPrevPage,
   onNextPage,
+  onFirstPage,
+  onLastPage,
   onZoomIn,
   onZoomOut,
   onZoomReset,
@@ -96,6 +98,18 @@ export function useKeyboard({
         onToggleFocusMode?.();
       } else if (e.key === "Escape") {
         onEscape?.();
+      } else if (e.key === "PageDown") {
+        e.preventDefault();
+        onNextPage?.();
+      } else if (e.key === "PageUp") {
+        e.preventDefault();
+        onPrevPage?.();
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        onFirstPage?.();
+      } else if (e.key === "End") {
+        e.preventDefault();
+        onLastPage?.();
       } else if (e.key === "ArrowRight" || e.key === "ArrowDown" || (e.key === " " && !e.shiftKey)) {
         e.preventDefault();
         onNextPage?.();
@@ -110,6 +124,8 @@ export function useKeyboard({
   }, [
     onPrevPage,
     onNextPage,
+    onFirstPage,
+    onLastPage,
     onZoomIn,
     onZoomOut,
     onZoomReset,

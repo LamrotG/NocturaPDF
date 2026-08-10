@@ -1,10 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import IconButton from "../common/IconButton.jsx";
-import AppMenu from "./AppMenu.jsx";
+import AppMenu, { MenuPopover } from "./AppMenu.jsx";
 import TabBar from "./TabBar.jsx";
-import { MaximizeIcon, MinimizeIcon, MonitorIcon, MoonIcon, SunIcon } from "../common/icons.jsx";
-
-const UI_THEME_ICONS = { light: SunIcon, dark: MoonIcon, system: MonitorIcon };
+import { HomeIcon, HelpIcon, MenuIcon, FullscreenIcon, FullscreenExitIcon } from "../common/icons.jsx";
 
 const isMac =
   typeof navigator !== "undefined" && navigator.platform.toLowerCase().includes("mac");
@@ -12,10 +10,9 @@ const MOD = isMac ? "⌘" : "Ctrl";
 const SHIFT = "Shift";
 const ALT = isMac ? "⌥" : "Alt";
 
-// Left = File/Edit/View/Help menus (branding lives in the OS window
-// title bar / browser tab, not duplicated here). Center = tab strip
-// (documents only, never tools). Right = UI theme toggle + fullscreen —
-// chrome-level controls, not document state.
+// Top application bar: Home + Menu on left, open PDF tabs in center,
+// Help + window controls on right. Profile and theme toggle have been
+// removed — profile lives in the left sidebar, app theme lives in Settings.
 export default function TopAppBar({
   tabs,
   activeTabId,
@@ -23,8 +20,6 @@ export default function TopAppBar({
   onCloseTab,
   onAddTab,
   onGoHome,
-  uiThemeId,
-  setUiThemeId,
   isFullscreen,
   onToggleFullscreen,
   // Menu actions
@@ -53,17 +48,8 @@ export default function TopAppBar({
   onUserManual,
   onKeyboardShortcuts,
   onAbout,
-  isSignedIn,
-  profileName,
-  onProfile,
 }) {
-  const ThemeIcon = UI_THEME_ICONS[uiThemeId] || UI_THEME_ICONS.system;
-
-  const cycleUiTheme = () => {
-    const order = ["light", "dark", "system"];
-    const next = order[(order.indexOf(uiThemeId) + 1) % order.length];
-    setUiThemeId(next);
-  };
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const fileItems = [
     { label: "Open…", shortcut: `${MOD}+O`, onClick: onAddTab },
@@ -119,8 +105,6 @@ export default function TopAppBar({
     { separator: true },
     { label: "Toggle Sidebar", onClick: onToggleSidebar, disabled: !hasDoc },
     { label: "Toggle Presentation Mode", onClick: onTogglePresentation, disabled: !hasDoc },
-    { separator: true },
-    { label: "Toggle Full Screen", shortcut: "F11", onClick: onToggleFullscreen },
   ];
 
   const helpItems = [
@@ -131,56 +115,44 @@ export default function TopAppBar({
     { label: "About", onClick: onAbout },
   ];
 
+  // All menus grouped under the hamburger menu.
+  const menuItems = [
+    {
+      label: "File",
+      submenu: fileItems,
+    },
+    {
+      label: "Edit",
+      submenu: editItems,
+    },
+    {
+      label: "View",
+      submenu: viewItems,
+    },
+  ];
+
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 16,
-        padding: "8px 12px",
+        gap: 12,
+        padding: "6px 10px",
         borderBottom: "1px solid var(--border)",
         background: "var(--bg)",
         color: "var(--text-h)",
-        // Top bar is a flex child of the app's column layout — without this,
-        // flex items default to min-width:auto and won't shrink below their
-        // content's intrinsic width, which is what let a horizontal
-        // scrollbar leak out of the whole bar once enough tabs were open.
         minWidth: 0,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-        <button
-          type="button"
-          aria-label="Go to home"
-          onClick={onGoHome}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 34,
-            height: 34,
-            padding: 2,
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            background: "var(--code-bg)",
-            color: "var(--accent)",
-            cursor: "pointer",
-            overflow: "hidden",
-          }}
-          title="Home"
-        >
-          <img
-            src="/favicon.svg"
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-          />
-        </button>
-        <AppMenu label="File" items={fileItems} />
-        <AppMenu label="Edit" items={editItems} />
-        <AppMenu label="View" items={viewItems} />
-        <AppMenu label="Help" items={helpItems} />
+      {/* Left: Home + Menu */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+        <IconButton aria-label="Home" title="Home" onClick={onGoHome}>
+          <HomeIcon size={18} />
+        </IconButton>
+        <AppMenu items={menuItems} triggerLabel="Menu" />
       </div>
 
+      {/* Center: PDF tabs */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <TabBar
           tabs={tabs}
@@ -191,59 +163,35 @@ export default function TopAppBar({
         />
       </div>
 
+      {/* Right: Help + window controls */}
       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-        <IconButton aria-label={`UI theme: ${uiThemeId} (click to cycle)`} onClick={cycleUiTheme}>
-          <ThemeIcon />
-        </IconButton>
+        <div
+          style={{ position: "relative" }}
+          onMouseEnter={() => setHelpOpen(true)}
+          onMouseLeave={() => setTimeout(() => setHelpOpen(false), 150)}
+        >
+          <IconButton
+            aria-label="Help"
+            title="Help"
+            active={helpOpen}
+            onClick={() => setHelpOpen((v) => !v)}
+          >
+            <HelpIcon size={18} />
+          </IconButton>
+          <MenuPopover
+            open={helpOpen}
+            onClose={() => setHelpOpen(false)}
+            items={helpItems}
+          />
+        </div>
         <IconButton
           aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          title={isFullscreen ? "Exit fullscreen (F11)" : "Enter fullscreen (F11)"}
           active={isFullscreen}
           onClick={onToggleFullscreen}
         >
-          {isFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
+          {isFullscreen ? <FullscreenExitIcon size={18} /> : <FullscreenIcon size={18} />}
         </IconButton>
-        {isSignedIn ? (
-          <button
-            type="button"
-            onClick={onProfile}
-            title={`Signed in as ${profileName || "user"} — click for profile settings`}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 12px",
-              fontSize: 13,
-              fontWeight: 600,
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--code-bg)",
-              color: "var(--text-h)",
-              cursor: "pointer",
-            }}
-          >
-            {profileName || "Account"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => (window.location.href = "/signin")}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 12px",
-              fontSize: 13,
-              fontWeight: 600,
-              borderRadius: 8,
-              border: "1px solid var(--accent)",
-              background: "var(--accent)",
-              color: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            Sign In
-          </button>
-        )}
       </div>
     </div>
   );

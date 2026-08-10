@@ -1,8 +1,12 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import SiteHeader from "../components/layout/SiteHeader.jsx";
 import SiteFooter from "../components/layout/SiteFooter.jsx";
 import { useAuth } from "../hooks/useAuth.js";
 import { updateProfile, updatePassword, deleteAccount } from "../services/authService.js";
+
+const PRESET_COLORS = ["#4caf50", "#ff9800", "#ffc107", "#9c27b0", "#2196f3"];
+const MAX_AVATAR_SIZE = 1 * 1024 * 1024; // 1 MB
+const AVATAR_SIZE = 200; // 200 × 200 px
 
 const inputStyle = {
   width: "100%",
@@ -24,18 +28,75 @@ const labelStyle = {
   marginBottom: 6,
 };
 
-// UI color conventions: green = success, red = danger/error, amber = warning
 const errorStyle = { fontSize: 13, color: "#d33", margin: "8px 0 0" };
 const successStyle = { fontSize: 13, color: "#2e7d32", margin: "8px 0 0" };
-
 const sectionTitleStyle = { fontSize: 18, fontWeight: 600, color: "var(--text-h)", margin: "32px 0 16px" };
+
+function AvatarCircle({ color, selected, onClick, size = 48, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        background: color,
+        color: "#fff",
+        border: selected ? "3px solid var(--accent)" : "3px solid transparent",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: size * 0.4,
+        fontWeight: 600,
+        overflow: "hidden",
+        flexShrink: 0,
+        padding: 0,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Crop an uploaded image to exactly 200×200 px (square).
+ * Returns a data URL.
+ */
+function cropToSquare(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const size = Math.min(img.width, img.height);
+      const sx = (img.width - size) / 2;
+      const sy = (img.height - size) / 2;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = AVATAR_SIZE;
+      canvas.height = AVATAR_SIZE;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, sx, sy, size, size, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.9));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Invalid image file."));
+    };
+    img.src = url;
+  });
+}
 
 export default function ProfileSettingsPage({ onNavigate }) {
   const { user, profile, signOut } = useAuth();
+  const fileInputRef = useRef(null);
 
   // Edit profile state
   const [name, setName] = useState(profile?.name || "");
-  const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || "");
+  const [avatarColor, setAvatarColor] = useState(profile?.avatar_color || PRESET_COLORS[0]);
+  const [customAvatar, setCustomAvatar] = useState(profile?.avatar_url || "");
   const [profileMsg, setProfileMsg] = useState("");
   const [profileError, setProfileError] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
@@ -53,12 +114,45 @@ export default function ProfileSettingsPage({ onNavigate }) {
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
 
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setProfileError("");
+    setProfileMsg("");
+
+    // Validate file size (max 1 MB).
+    if (file.size > MAX_AVATAR_SIZE) {
+      setProfileError("Image is too large. Maximum size is 1 MB.");
+      return;
+    }
+
+    // Validate file type.
+    if (!file.type.startsWith("image/")) {
+      setProfileError("Invalid file type. Please upload an image.");
+      return;
+    }
+
+    try {
+      const dataUrl = await cropToSquare(file);
+      setCustomAvatar(dataUrl);
+      setAvatarColor(null); // custom avatar overrides color
+    } catch (err) {
+      setProfileError(err.message || "Failed to process image.");
+    }
+  };
+
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     setProfileMsg("");
     setProfileError("");
     setSavingProfile(true);
-    const { error } = await updateProfile({ name, avatarUrl: avatarUrl || null });
+    const { error } = await updateProfile({
+      name,
+      avatarUrl: customAvatar || null,
+      avatarColor: avatarColor || null,
+    });
     setSavingProfile(false);
     if (error) {
       setProfileError(error);
@@ -93,7 +187,7 @@ export default function ProfileSettingsPage({ onNavigate }) {
   const handleDeleteAccount = async () => {
     setDeleteError("");
     if (deleteConfirm.toLowerCase() !== "delete") {
-      setDeleteError("Please type \"delete\" to confirm.");
+      setDeleteError('Please type "delete" to confirm.');
       return;
     }
     setDeleting(true);
@@ -103,7 +197,6 @@ export default function ProfileSettingsPage({ onNavigate }) {
       setDeleteError(error);
       return;
     }
-    // Auth state change will sign out automatically.
     onNavigate("/");
   };
 
@@ -132,16 +225,51 @@ export default function ProfileSettingsPage({ onNavigate }) {
             />
           </div>
 
+          {/* ── Avatar selector ─────────────────────────────────── */}
           <div>
-            <label style={labelStyle} htmlFor="avatar-url">Avatar URL (optional)</label>
+            <label style={labelStyle}>Avatar</label>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              {PRESET_COLORS.map((color) => (
+                <AvatarCircle
+                  key={color}
+                  color={color}
+                  selected={!customAvatar && avatarColor === color}
+                  onClick={() => {
+                    setAvatarColor(color);
+                    setCustomAvatar("");
+                  }}
+                >
+                  {(profile?.name || "U").charAt(0).toUpperCase()}
+                </AvatarCircle>
+              ))}
+
+              {/* Custom avatar upload */}
+              <AvatarCircle
+                color="#607d8b"
+                selected={Boolean(customAvatar)}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {customAvatar ? (
+                  <img
+                    src={customAvatar}
+                    alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                ) : (
+                  <span style={{ fontSize: 24 }}>+</span>
+                )}
+              </AvatarCircle>
+            </div>
             <input
-              id="avatar-url"
-              type="url"
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              style={inputStyle}
-              placeholder="https://example.com/avatar.png"
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarUpload}
+              style={{ display: "none" }}
             />
+            <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "8px 0 0" }}>
+              Max 1 MB. Images are cropped to 200 × 200 px.
+            </p>
           </div>
 
           {profileError && <p style={errorStyle}>{profileError}</p>}

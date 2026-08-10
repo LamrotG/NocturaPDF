@@ -21,8 +21,10 @@ export default function ScrollContainer({
   fitMode,
   onZoomChange,
   onCurrentPageChange,
+  onScrollPositionChange,
   scrollRequest,
   rotation = 0,
+  initialScrollPosition = null,
 }) {
   const scrollRef = useRef(null);
   const measureRef = useRef(null);
@@ -30,6 +32,7 @@ export default function ScrollContainer({
   const [containerWidth, setContainerWidth] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const [visiblePages, setVisiblePages] = useState(() => new Set());
+  const initialRestoredRef = useRef(false);
 
   useEffect(() => {
     const el = measureRef.current;
@@ -120,6 +123,39 @@ export default function ScrollContainer({
 
     return () => observer.disconnect();
   }, [numPages, onCurrentPageChange]);
+
+  // Report scroll position (normalized 0..1) for reading-position persistence.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !onScrollPositionChange) return;
+
+    const onScroll = () => {
+      const max = el.scrollHeight - el.clientHeight;
+      const y = max > 0 ? el.scrollTop / max : 0;
+      onScrollPositionChange(y);
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [onScrollPositionChange]);
+
+  // Restore initial scroll position (from persisted reading position).
+  useEffect(() => {
+    if (initialRestoredRef.current || !initialScrollPosition) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    // Wait for pages to render so scrollHeight is correct.
+    const timer = setTimeout(() => {
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 0) {
+        el.scrollTop = initialScrollPosition.y * max;
+      }
+      initialRestoredRef.current = true;
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [initialScrollPosition]);
 
   // Imperative "jump to page" — Sidebar thumbnails/outline and the Toolbar's
   // page field drive this by passing a new { page, id } object each time

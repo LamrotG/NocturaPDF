@@ -158,7 +158,7 @@ export async function updatePassword(newPassword, oldPassword) {
 /**
  * Update the user's profile (name, avatar).
  */
-export async function updateProfile({ name, avatarUrl }) {
+export async function updateProfile({ name, avatarUrl, avatarColor }) {
   if (!isSupabaseConfigured) return { error: "Supabase is not configured." };
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
@@ -166,6 +166,7 @@ export async function updateProfile({ name, avatarUrl }) {
   const updates = {};
   if (name !== undefined) updates.name = name;
   if (avatarUrl !== undefined) updates.avatar_url = avatarUrl;
+  if (avatarColor !== undefined) updates.avatar_color = avatarColor;
 
   const { error } = await supabase
     .from("profiles")
@@ -208,7 +209,7 @@ export async function getProfile(userId) {
   if (!supabase || !userId) return null;
   const { data } = await supabase
     .from("profiles")
-    .select("id, name, email, email_verified, avatar_url")
+    .select("id, name, email, email_verified, avatar_url, avatar_color")
     .eq("id", userId)
     .maybeSingle();
   return data || null;

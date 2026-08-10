@@ -60,7 +60,7 @@ export default function SiteHeader({ onNavigate }) {
 
         <div style={{ justifySelf: "end" }}>
           <button
-            onClick={() => onNavigate("/signin")}
+            onClick={() => onNavigate("/signup")}
             style={{
               padding: "8px 16px",
               fontSize: 14,
@@ -71,7 +71,7 @@ export default function SiteHeader({ onNavigate }) {
               cursor: "pointer",
             }}
           >
-            Sign In
+            Get Started
           </button>
         </div>
       </div>
