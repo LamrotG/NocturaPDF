@@ -3,7 +3,17 @@ import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mj
 import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import ScrollContainer from "./ScrollContainer.jsx";
 
-GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+if (typeof window !== "undefined" && typeof Worker !== "undefined") {
+  try {
+    const pdfWorkerPort = new Worker(pdfWorkerUrl, { type: "module" });
+    GlobalWorkerOptions.workerPort = pdfWorkerPort;
+  } catch (error) {
+    console.warn("Unable to initialize pdf.js worker port, falling back to workerSrc:", error);
+    GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  }
+} else {
+  GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+}
 
 // Owns document load/lifecycle only — per-page rendering, virtualization and
 // theme application live in ScrollContainer/PageCanvas.
@@ -105,13 +115,6 @@ export default function PdfViewer({
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
-      {error && (
-        <div style={{ color: "#d33", padding: "8px 16px" }}>{error}</div>
-      )}
-      {isLoading && (
-        <div style={{ opacity: 0.8, padding: "8px 16px" }}>Loading PDF…</div>
-      )}
-
       {pdfDoc && numPages > 0 && (
         <ScrollContainer
           pdfDoc={pdfDoc}
@@ -127,6 +130,62 @@ export default function PdfViewer({
           rotation={rotation}
           initialScrollPosition={initialScrollPosition}
         />
+      )}
+
+      {error && (
+        <div style={{ color: "#d33", padding: "8px 16px" }}>{error}</div>
+      )}
+
+      {isLoading && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(24, 28, 34, 0.72)",
+            zIndex: 60,
+          }}
+        >
+          <div
+            style={{
+              position: "relative",
+              width: 72,
+              height: 72,
+            }}
+          >
+            {[...Array(5)].map((_, index) => {
+              const angle = (index / 5) * Math.PI * 2;
+              const x = 28 + Math.cos(angle) * 22;
+              const y = 28 + Math.sin(angle) * 22;
+              return (
+                <div
+                  key={index}
+                  style={{
+                    position: "absolute",
+                    left: x,
+                    top: y,
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: "#edf2f7",
+                    transform: "translate(-50%, -50%)",
+                    animation: "spinner-rotate 1s linear infinite",
+                    animationDelay: `${index * 0.08}s`,
+                  }}
+                />
+              );
+            })}
+          </div>
+          <style>{`
+            @keyframes spinner-rotate {
+              0% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
+              50% { opacity: 1; transform: translate(-50%, -50%) scale(1.3); }
+              100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
+            }
+          `}</style>
+        </div>
       )}
     </div>
   );

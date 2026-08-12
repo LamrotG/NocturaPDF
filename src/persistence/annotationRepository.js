@@ -33,6 +33,24 @@ export async function createHighlight({ documentId, page, text, rects, color = "
 /**
  * Create a note annotation associated with text/location.
  */
+export async function createBookmark({ documentId, page, label = "" }) {
+  const now = Date.now();
+  const ann = {
+    id: uuid(),
+    type: "bookmark",
+    documentId,
+    page,
+    text: label || "",
+    rects: [],
+    color: "#f7e06b",
+    note: "",
+    createdAt: now,
+    updatedAt: now,
+  };
+  await putOne("annotations", ann);
+  return ann;
+}
+
 export async function createNote({ documentId, page, text, note, rects = [] }) {
   const now = Date.now();
   const ann = {

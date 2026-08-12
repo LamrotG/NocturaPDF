@@ -166,9 +166,36 @@ export default function SignUpPage({ onNavigate }) {
 
       <div style={{ maxWidth: 400, margin: "0 auto", padding: "72px 24px 88px" }}>
         <h1 style={{ fontSize: 28, color: "var(--text-h)", margin: "0 0 8px" }}>Create account</h1>
-        <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 32px" }}>
+        <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 24px" }}>
           Create an account to sync your library and reading progress across devices.
         </p>
+
+        {/* Google signup — prominent, near the top */}
+        <button
+          onClick={handleGoogle}
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "12px 24px",
+            fontSize: 15,
+            fontWeight: 600,
+            borderRadius: 10,
+            border: "1px solid var(--border)",
+            background: "transparent",
+            color: "var(--text-h)",
+            cursor: loading ? "default" : "pointer",
+            opacity: loading ? 0.6 : 1,
+            marginBottom: 8,
+          }}
+        >
+          Sign up with Google
+        </button>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "8px 0 16px" }}>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          <span style={{ fontSize: 13, color: "var(--text)" }}>or</span>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        </div>
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
@@ -275,31 +302,6 @@ export default function SignUpPage({ onNavigate }) {
             {loading ? "Creating account…" : "Create Account"}
           </button>
         </form>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "24px 0" }}>
-          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-          <span style={{ fontSize: 13, color: "var(--text)" }}>or</span>
-          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-        </div>
-
-        <button
-          onClick={handleGoogle}
-          disabled={loading}
-          style={{
-            width: "100%",
-            padding: "12px 24px",
-            fontSize: 15,
-            fontWeight: 600,
-            borderRadius: 10,
-            border: "1px solid var(--border)",
-            background: "transparent",
-            color: "var(--text-h)",
-            cursor: loading ? "default" : "pointer",
-            opacity: loading ? 0.6 : 1,
-          }}
-        >
-          Sign up with Google
-        </button>
 
         <p style={{ fontSize: 12.5, color: "var(--text)", margin: "12px 0 0", lineHeight: 1.5 }}>
           When you sign up with Google, we only use your email address and name

@@ -3,7 +3,6 @@ import { DEFAULT_UI_THEME_ID, DEFAULT_PDF_COLOR_MODE_ID } from "../utils/constan
 
 const UI_THEME_KEY = "ui-theme";
 const PDF_COLOR_MODE_KEY = "pdf-color-mode";
-const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 const RECENT_VIEW_KEY = "recent-view";
 
 export function getUiTheme() {
@@ -20,16 +19,6 @@ export function getPdfColorMode() {
 
 export function setPdfColorMode(id) {
   storageService.set(PDF_COLOR_MODE_KEY, id);
-}
-
-// Sidebar defaults to collapsed per the reading-first layout — it is
-// optional context, never the default reading surface.
-export function getSidebarCollapsed() {
-  return storageService.get(SIDEBAR_COLLAPSED_KEY, true);
-}
-
-export function setSidebarCollapsed(collapsed) {
-  storageService.set(SIDEBAR_COLLAPSED_KEY, collapsed);
 }
 
 // Recent files view preference: "grid" (thumbnails) or "list".

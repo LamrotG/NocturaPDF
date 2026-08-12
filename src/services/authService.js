@@ -207,10 +207,19 @@ export async function deleteAccount() {
  */
 export async function getProfile(userId) {
   if (!supabase || !userId) return null;
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, name, email, email_verified, avatar_url, avatar_color")
-    .eq("id", userId)
-    .maybeSingle();
-  return data || null;
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, name, email, email_verified, avatar_url, avatar_color")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) {
+      console.warn("Profile fetch failed:", error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn("Profile fetch error:", e);
+    return null;
+  }
 }

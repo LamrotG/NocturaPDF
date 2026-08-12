@@ -42,12 +42,12 @@ export default function TopAppBar({
   onActualSize,
   onRotateCW,
   onRotateCCW,
-  onToggleSidebar,
   onTogglePresentation,
   onVisitWebsite,
   onUserManual,
   onKeyboardShortcuts,
   onAbout,
+  onAboutThemes,
 }) {
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -103,7 +103,6 @@ export default function TopAppBar({
     { label: "Rotate Clockwise", onClick: onRotateCW, disabled: !hasDoc },
     { label: "Rotate Counterclockwise", onClick: onRotateCCW, disabled: !hasDoc },
     { separator: true },
-    { label: "Toggle Sidebar", onClick: onToggleSidebar, disabled: !hasDoc },
     { label: "Toggle Presentation Mode", onClick: onTogglePresentation, disabled: !hasDoc },
   ];
 
@@ -111,24 +110,24 @@ export default function TopAppBar({
     { label: "Visit Website", onClick: onVisitWebsite },
     { label: "User Manual", onClick: onUserManual },
     { label: "Keyboard Shortcuts", onClick: onKeyboardShortcuts },
+    { label: "About Themes", onClick: onAboutThemes },
     { separator: true },
     { label: "About", onClick: onAbout },
   ];
 
   // All menus grouped under the hamburger menu.
+  // File / Edit / View appear as sections under the Menu button with headers
+  // and horizontal separators between groups. Navigation and submenus work
+  // on click only (no hover-driven open).
   const menuItems = [
-    {
-      label: "File",
-      submenu: fileItems,
-    },
-    {
-      label: "Edit",
-      submenu: editItems,
-    },
-    {
-      label: "View",
-      submenu: viewItems,
-    },
+    { header: "File" },
+    ...fileItems,
+    { separator: true },
+    { header: "Edit" },
+    ...editItems,
+    { separator: true },
+    { header: "View" },
+    ...viewItems,
   ];
 
   return (
@@ -165,11 +164,7 @@ export default function TopAppBar({
 
       {/* Right: Help + window controls */}
       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-        <div
-          style={{ position: "relative" }}
-          onMouseEnter={() => setHelpOpen(true)}
-          onMouseLeave={() => setTimeout(() => setHelpOpen(false), 150)}
-        >
+        <div style={{ position: "relative" }}>
           <IconButton
             aria-label="Help"
             title="Help"
@@ -182,6 +177,7 @@ export default function TopAppBar({
             open={helpOpen}
             onClose={() => setHelpOpen(false)}
             items={helpItems}
+            align="right"
           />
         </div>
         <IconButton

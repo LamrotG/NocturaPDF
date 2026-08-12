@@ -2,6 +2,21 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { getCurrentUser, onAuthStateChange } from "../services/supabaseClient.js";
 import { getProfile, signOut as doSignOut } from "../services/authService.js";
 
+// Fallback profile derived from the auth user's metadata when the profiles
+// table query fails (e.g. schema not applied yet).
+function profileFromUser(user) {
+  if (!user) return null;
+  const meta = user.user_metadata || {};
+  return {
+    id: user.id,
+    name: meta.name || user.email?.split("@")[0] || "User",
+    email: user.email || "",
+    email_verified: Boolean(user.email_confirmed_at),
+    avatar_url: meta.avatar_url || null,
+    avatar_color: meta.avatar_color || null,
+  };
+}
+
 const AuthContext = createContext(null);
 
 // Provides the current user + profile and auth actions to the whole app.
@@ -21,7 +36,7 @@ export function AuthProvider({ children }) {
       setUser(current);
       if (current) {
         const p = await getProfile(current.id);
-        if (!cancelled) setProfile(p);
+        if (!cancelled) setProfile(p || profileFromUser(current));
       }
       setLoading(false);
     })();
@@ -30,7 +45,7 @@ export function AuthProvider({ children }) {
       setUser(nextUser);
       if (nextUser) {
         const p = await getProfile(nextUser.id);
-        setProfile(p);
+        setProfile(p || profileFromUser(nextUser));
       } else {
         setProfile(null);
       }

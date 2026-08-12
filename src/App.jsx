@@ -5,17 +5,16 @@ import { AppStoreProvider, useAppStore } from "./store/appstore.js";
 import { AuthProvider, useAuth } from "./hooks/useAuth.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import { useRoute, isStandalonePwa } from "./hooks/useRoute.js";
-import { getSidebarCollapsed, setSidebarCollapsed as persistSidebarCollapsed } from "./services/settingService.js";
 import { themeToCssVars } from "./utils/themeCssVars.js";
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./utils/constants.js";
 import { recordDocumentOpen, createDebouncedPositionSaver } from "./persistence/index.js";
 import TopAppBar from "./components/layout/TopAppBar.jsx";
 import SecondaryToolbar from "./components/layout/SecondaryToolbar.jsx";
-import Sidebar from "./components/layout/Sidebar.jsx";
 import PdfViewer from "./components/reader/PdfViewer.jsx";
 import ReaderHome from "./components/reader/ReaderHome.jsx";
 import PdfSearch from "./components/reader/PdfSearch.jsx";
 import TextSelectionActions from "./components/reader/TextSelectionActions.jsx";
+import PdfToolsPanel from "./components/reader/PdfToolsPanel.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import LandingPage from "./pages/LandingPage.jsx";
 import AboutPage from "./pages/AboutPage.jsx";
@@ -28,6 +27,7 @@ import ProfileSettingsPage from "./pages/ProfileSettingsPage.jsx";
 import PropertiesDialog from "./components/dialogs/PropertiesDialog.jsx";
 import KeyboardShortcutsDialog from "./components/dialogs/KeyboardShortcutsDialog.jsx";
 import AboutDialog from "./components/dialogs/AboutDialog.jsx";
+import AboutThemesDialog from "./components/dialogs/AboutThemesDialog.jsx";
 
 const APP_WEBSITE = "https://github.com/LamrotG/NocturaPDF";
 const USER_MANUAL_URL = "https://github.com/LamrotG/NocturaPDF#readme";
@@ -53,17 +53,18 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
   const [initialScrollPosition, setInitialScrollPosition] = useState(null);
   const [activeView, setActiveView] = useState("recent");
 
-  const [sidebarCollapsed, setSidebarCollapsedState] = useState(() => getSidebarCollapsed());
   const [focusMode, setFocusMode] = useState(false);
   const [presentationMode, setPresentationMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTool, setActiveTool] = useState("select");
 
   // Dialog state
   const [showProperties, setShowProperties] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showAboutThemes, setShowAboutThemes] = useState(false);
 
   const hasDoc = Boolean(activeTab);
 
@@ -217,14 +218,6 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
     setScrollRequest({ page, id: Date.now() });
   }, []);
 
-  const handleToggleSidebar = useCallback(() => {
-    setSidebarCollapsedState((prev) => {
-      const next = !prev;
-      persistSidebarCollapsed(next);
-      return next;
-    });
-  }, []);
-
   const handleToggleFocusMode = useCallback(() => setFocusMode((v) => !v), []);
 
   const handleTogglePresentationMode = useCallback(() => {
@@ -338,6 +331,8 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
     setSearchOpen(true);
   }, []);
 
+  const [pendingCloseTabId, setPendingCloseTabId] = useState(null);
+
   const handleCloseTab = useCallback(
     (id) => {
       // Flush reading position before closing.
@@ -346,6 +341,48 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
     },
     [closeTab]
   );
+
+  const handleRequestCloseTab = useCallback(
+    (id) => {
+      // Check if the tab has unsaved changes (annotations/bookmarks).
+      const tab = tabs.find((t) => t.id === id);
+      if (!tab) return;
+      // If the document has been modified (has annotations), ask to save.
+      // For simplicity, we always ask when a document is open.
+      setPendingCloseTabId(id);
+    },
+    [tabs]
+  );
+
+  const handleConfirmCloseTab = useCallback(() => {
+    if (pendingCloseTabId) {
+      handleCloseTab(pendingCloseTabId);
+    }
+    setPendingCloseTabId(null);
+  }, [pendingCloseTabId, handleCloseTab]);
+
+  const handleSaveAndCloseTab = useCallback(async () => {
+    if (pendingCloseTabId) {
+      // Save the file locally (download a copy) then close.
+      const tab = tabs.find((t) => t.id === pendingCloseTabId);
+      if (tab?.file) {
+        try {
+          const arrayBuffer = await tab.file.arrayBuffer();
+          const blob = new Blob([arrayBuffer], { type: "application/pdf" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = tab.file.name || "document.pdf";
+          a.click();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          console.error("Save failed:", e);
+        }
+      }
+      handleCloseTab(pendingCloseTabId);
+    }
+    setPendingCloseTabId(null);
+  }, [pendingCloseTabId, tabs, handleCloseTab]);
 
   useKeyboard({
     onPrevPage: () => handleJumpToPage(Math.max(1, currentPage - 1)),
@@ -360,14 +397,13 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
     onFindNext: () => {},
     onFindPrevious: () => {},
     onOpenFile: handleOpenFileDialog,
-    onCloseTab: () => activeTabId && handleCloseTab(activeTabId),
+    onCloseTab: () => activeTabId && handleRequestCloseTab(activeTabId),
     onSave: handleSave,
     onSaveAs: handleSaveAs,
     onPrint: handlePrint,
     onProperties: () => setShowProperties(true),
     onRotateCW: handleRotateCW,
     onRotateCCW: handleRotateCCW,
-    onToggleSidebar: handleToggleSidebar,
     onToggleFullscreen: handleToggleFullscreen,
     onTogglePresentation: handleTogglePresentationMode,
     onEscape: () => {
@@ -376,10 +412,6 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
       setSearchOpen(false);
     },
   });
-
-  // Focus mode temporarily overrides the sidebar without mutating the
-  // persisted preference — exiting focus mode restores whatever was saved.
-  const effectiveSidebarCollapsed = sidebarCollapsed || focusMode || presentationMode;
 
   const cssVars = useMemo(() => themeToCssVars(resolvedTheme), [resolvedTheme]);
 
@@ -410,7 +442,7 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
             tabs={tabs}
             activeTabId={activeTabId}
             onSelectTab={handleSelectTab}
-            onCloseTab={handleCloseTab}
+            onCloseTab={handleRequestCloseTab}
             onAddTab={handleOpenFileDialog}
             onGoHome={onGoHome}
             isFullscreen={isFullscreen}
@@ -434,17 +466,15 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
             onActualSize={handleActualSize}
             onRotateCW={handleRotateCW}
             onRotateCCW={handleRotateCCW}
-            onToggleSidebar={handleToggleSidebar}
             onTogglePresentation={handleTogglePresentationMode}
             onVisitWebsite={handleVisitWebsite}
             onUserManual={handleUserManual}
             onKeyboardShortcuts={() => setShowShortcuts(true)}
             onAbout={() => setShowAbout(true)}
+            onAboutThemes={() => setShowAboutThemes(true)}
           />
 
           <SecondaryToolbar
-            sidebarCollapsed={sidebarCollapsed}
-            onToggleSidebar={handleToggleSidebar}
             currentPage={currentPage}
             numPages={numPages}
             onJumpToPage={handleJumpToPage}
@@ -463,18 +493,6 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
       )}
 
       <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
-        {!showHomeView && (
-          <Sidebar
-            pdfDoc={pdfDoc}
-            numPages={numPages}
-            currentPage={currentPage}
-            onJumpToPage={handleJumpToPage}
-            colorMode={colorMode}
-            lut={lut}
-            collapsed={effectiveSidebarCollapsed}
-          />
-        )}
-
         <div
           ref={viewerContainerRef}
           style={{ flex: 1, minWidth: 0, position: "relative" }}
@@ -524,6 +542,16 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
           ) : null}
 
           {!showHomeView && activeTab && (
+            <PdfToolsPanel
+              containerRef={viewerContainerRef}
+              documentId={documentId}
+              currentPage={currentPage}
+              onToolChange={setActiveTool}
+              activeTool={activeTool}
+            />
+          )}
+
+          {!showHomeView && activeTab && (
             <TextSelectionActions
               containerRef={viewerContainerRef}
               documentId={documentId}
@@ -550,6 +578,87 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
         open={showAbout}
         onClose={() => setShowAbout(false)}
       />
+      <AboutThemesDialog open={showAboutThemes} onClose={() => setShowAboutThemes(false)} />
+
+      {/* Unsaved changes dialog */}
+      {pendingCloseTabId && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.5)",
+          }}
+        >
+          <div
+            style={{
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              padding: "24px",
+              maxWidth: 400,
+              width: "90%",
+              boxShadow: "0 16px 48px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 12px", fontSize: 16, color: "var(--text-h)" }}>
+              Save changes?
+            </h3>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
+              This document has unsaved changes (highlights, bookmarks, or notes).
+              Do you want to save it before closing?
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setPendingCloseTabId(null)}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-h)",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCloseTab}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text)",
+                  cursor: "pointer",
+                }}
+              >
+                Don't Save
+              </button>
+              <button
+                onClick={handleSaveAndCloseTab}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  border: "1px solid var(--accent)",
+                  background: "var(--accent)",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                Save & Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,16 +3,24 @@ import { MenuIcon } from "../common/icons.jsx";
 
 // Renders a menu item, separator, or submenu header inside a popover.
 // Supports `disabled`, `separator`, and `submenu` item types.
-function MenuItem({ item, onHoverSubmenu, onClose }) {
+function MenuItem({ item, onOpenSubmenu, onClose }) {
   if (item.separator) {
     return <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />;
+  }
+
+  if (item.header) {
+    return (
+      <div style={{ padding: "6px 10px", fontSize: 12, fontWeight: 700, color: "var(--text-h)", opacity: 0.95 }}>
+        {item.header}
+      </div>
+    );
   }
 
   if (item.submenu) {
     return (
       <button
         disabled={item.disabled}
-        onMouseEnter={() => onHoverSubmenu?.(item)}
+        onClick={() => onOpenSubmenu?.(item)}
         style={{
           display: "flex",
           alignItems: "center",
@@ -71,9 +79,47 @@ function MenuItem({ item, onHoverSubmenu, onClose }) {
 }
 
 // Internal popover menu used by AppMenu, HelpMenu, and other dropdown menus.
-export function MenuPopover({ open, onClose, items }) {
+export function MenuPopover({ open, onClose, items, align = "left" }) {
   const ref = useRef(null);
+  const popoverRef = useRef(null);
   const [submenuItems, setSubmenuItems] = useState(null);
+  
+  // Keep the popover fully inside the viewport.
+  useEffect(() => {
+    if (!open) return;
+    const el = popoverRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let left = rect.left;
+    let top = rect.top;
+    let changed = false;
+
+    if (rect.right > vw) {
+      left = Math.max(8, vw - rect.width - 8);
+      changed = true;
+    }
+    if (rect.left < 8) {
+      left = 8;
+      changed = true;
+    }
+    if (rect.bottom > vh) {
+      top = Math.max(8, vh - rect.height - 8);
+      changed = true;
+    }
+    if (rect.top < 8) {
+      top = 8;
+      changed = true;
+    }
+
+    if (changed) {
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
+    }
+  }, [open, submenuItems]);
 
   useEffect(() => {
     if (!open) return;
@@ -97,12 +143,19 @@ export function MenuPopover({ open, onClose, items }) {
 
   return (
     <div
-      ref={ref}
+      ref={(node) => {
+        ref.current = node;
+        popoverRef.current = node;
+      }}
       style={{
         position: "absolute",
         top: "calc(100% + 4px)",
-        left: 0,
+        left: align === "right" ? "auto" : 0,
+        right: align === "right" ? 0 : "auto",
         minWidth: submenuItems ? 360 : 220,
+        maxWidth: "calc(100vw - 32px)",
+        maxHeight: "calc(100vh - 96px)",
+        overflowY: "auto",
         background: "var(--bg)",
         border: "1px solid var(--border)",
         borderRadius: 8,
@@ -110,19 +163,12 @@ export function MenuPopover({ open, onClose, items }) {
         padding: 6,
         zIndex: 50,
       }}
-      onMouseLeave={(e) => {
-        // Close if the pointer leaves the entire menu.
-        if (!ref.current?.contains(e.relatedTarget)) {
-          // Small delay so moving between parent/submenu works.
-          setTimeout(() => onClose?.(), 150);
-        }
-      }}
     >
       {(submenuItems || items).map((item, i) => (
         <MenuItem
           key={i}
           item={item}
-          onHoverSubmenu={(sub) => setSubmenuItems(sub.submenu)}
+          onOpenSubmenu={(sub) => setSubmenuItems(sub.submenu)}
           onClose={onClose}
         />
       ))}
@@ -155,26 +201,14 @@ export function MenuPopover({ open, onClose, items }) {
 // Wraps a trigger element with a dropdown menu that opens on hover and click.
 export default function AppMenu({ items, trigger, triggerLabel }) {
   const [open, setOpen] = useState(false);
-  const closeTimerRef = useRef(null);
 
-  const openMenu = () => {
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-    setOpen(true);
-  };
-
-  const closeMenu = () => {
-    closeTimerRef.current = setTimeout(() => setOpen(false), 150);
-  };
+  const toggleMenu = () => setOpen((v) => !v);
 
   return (
-    <div
-      style={{ position: "relative" }}
-      onMouseEnter={openMenu}
-      onMouseLeave={closeMenu}
-    >
+    <div style={{ position: "relative" }}>
       {trigger || (
         <button
-          onClick={openMenu}
+          onClick={toggleMenu}
           aria-label={triggerLabel}
           style={{
             display: "inline-flex",

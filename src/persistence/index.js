@@ -25,6 +25,7 @@ export {
 export {
   createHighlight,
   createNote,
+  createBookmark,
   updateAnnotation,
   deleteAnnotation,
   getDocumentAnnotations,

@@ -1,188 +1,201 @@
 import React, { useEffect, useRef, useState } from "react";
-import { applyTheme, cloneImageData } from "../../features/darkmode/darkmodeEngine.js";
+import { applyTheme, cloneImageData, drawWebglTheme } from "../../features/darkmode/darkmodeEngine.js";
+import { determineRenderDecision } from "../../features/darkmode/themeEngine.js";
 import { MAX_SCALE, MIN_SCALE } from "../../utils/constants.js";
+import LutWorker from "../../features/darkmode/lutWorker.js?worker";
+import { runLutWorker } from "../../features/darkmode/lutWorkerPool.js";
 
-function clampScale(value) {
-  return Math.min(Math.max(value, MIN_SCALE), MAX_SCALE);
-}
+const WORKER_PIXEL_THRESHOLD = 1_600_000;
+const clampScale = (value) => Math.min(Math.max(value, MIN_SCALE), MAX_SCALE);
 
-// Renders exactly one PDF page. Caches the raw (undarkened) pixels right
-// after pdf.js renders them so switching themes just reprocesses that cache
-// instead of re-invoking page.render() — this is what makes theme switching
-// instant. When scrolled out of view the raw cache and canvas bitmap are
-// dropped (a page's worth of ImageData is multiple MB; keeping it for every
-// page in a 300-page document would exhaust memory), and re-rendered from
-// pdf.js again if it scrolls back into view.
-//
-// Scale is derived per-page from `containerWidth`/`zoomFactor` rather than
-// passed in precomputed, since fit-to-width depends on each page's own
-// intrinsic size (pages in one document can differ, e.g. portrait + landscape).
-export default function PageCanvas({
-  pdfDoc,
-  pageNumber,
-  containerWidth,
-  containerHeight,
-  zoomFactor,
-  fitMode = "width",
-  colorMode,
-  lut,
-  isVisible,
-  rotation = 0,
-}) {
+// Render one page at a time. PDF.js always owns the source canvas; presentation
+// is then selected independently (native PDF.js colors, GPU, CPU, or worker).
+export default function PageCanvas({ pdfDoc, pageNumber, containerWidth, containerHeight, zoomFactor, fitMode = "width", colorMode, lut, isVisible, rotation = 0 }) {
   const canvasRef = useRef(null);
+  const sourceCanvasRef = useRef(null);
+  const sourceCtxRef = useRef(null);
   const pageRef = useRef(null);
   const renderTaskRef = useRef(null);
   const rawImageDataRef = useRef(null);
-
   const [unscaledSize, setUnscaledSize] = useState(null);
   const [isRendered, setIsRendered] = useState(false);
+  const defaultRenderPath = colorMode?.renderer === "webgl" ? "webgl" : colorMode?.mode === "native" ? "native" : "cpu";
+  const [effectiveRenderPath, setEffectiveRenderPath] = useState(null);
+  const [effectiveUseWorker, setEffectiveUseWorker] = useState(false);
+  const [effectiveShader, setEffectiveShader] = useState(null);
+  const nativeSupportRef = useRef(null);
 
-  // Probe the page's intrinsic size once, regardless of visibility, so
-  // off-screen pages still reserve the right scroll height (no layout jump
-  // the first time a page scrolls into view).
   useEffect(() => {
     let cancelled = false;
-
-    async function probeSize() {
-      const page = pageRef.current || (await pdfDoc.getPage(pageNumber));
+    (async () => {
+      const page = pageRef.current || await pdfDoc.getPage(pageNumber);
       if (cancelled) return;
       pageRef.current = page;
-      const unscaled = page.getViewport({ scale: 1, rotation });
-      setUnscaledSize({ width: unscaled.width, height: unscaled.height });
-    }
-
-    probeSize();
-
-    return () => {
-      cancelled = true;
-    };
+      const viewport = page.getViewport({ scale: 1, rotation });
+      setUnscaledSize({ width: viewport.width, height: viewport.height });
+    })().catch(() => {});
+    return () => { cancelled = true; };
   }, [pdfDoc, pageNumber, rotation]);
 
-  const scale = unscaledSize
-    ? clampScale(
-        fitMode === "page" && containerHeight
-          ? Math.min(
-              containerWidth / unscaledSize.width,
-              containerHeight / unscaledSize.height
-            ) * zoomFactor
-          : (containerWidth * zoomFactor) / unscaledSize.width
-      )
-    : null;
-  const size =
-    unscaledSize && scale
-      ? {
-          width: Math.floor(unscaledSize.width * scale),
-          height: Math.floor(unscaledSize.height * scale),
-        }
-      : null;
+  const scale = unscaledSize ? clampScale((fitMode === "page" && containerHeight ? Math.min(containerWidth / unscaledSize.width, containerHeight / unscaledSize.height) : containerWidth / unscaledSize.width) * zoomFactor) : null;
+  const size = unscaledSize && scale ? { width: Math.floor(unscaledSize.width * scale), height: Math.floor(unscaledSize.height * scale) } : null;
 
-  // Render (when visible) or tear down (when scrolled away) actual pixels.
   useEffect(() => {
     let cancelled = false;
-
     if (!isVisible || scale == null) {
-      if (renderTaskRef.current) {
-        try {
-          renderTaskRef.current.cancel();
-        } catch {
-          /* ignore: already settled */
-        }
-        renderTaskRef.current = null;
-      }
-      rawImageDataRef.current = null;
-      setIsRendered(false);
-      const canvas = canvasRef.current;
-      if (canvas) {
-        // Reassigning width discards the bitmap and repaints transparent,
-        // letting the CSS `background` (theme bg) show through cleanly —
-        // clearRect on an alpha:false context would paint opaque black instead.
-        canvas.width = 0;
-        canvas.height = 0;
-      }
-      return;
+      renderTaskRef.current?.cancel?.(); renderTaskRef.current = null; rawImageDataRef.current = null; setIsRendered(false);
+      for (const canvas of [canvasRef.current, sourceCanvasRef.current]) if (canvas) { canvas.width = 0; canvas.height = 0; }
+      return () => { cancelled = true; };
     }
-
-    async function renderPage() {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const page = pageRef.current || (await pdfDoc.getPage(pageNumber));
+    (async () => {
+      const output = canvasRef.current;
+      const usePath = effectiveRenderPath || defaultRenderPath;
+      const source = usePath === "webgl" ? sourceCanvasRef.current : output;
+      if (!output || !source) return;
+      const page = pageRef.current || await pdfDoc.getPage(pageNumber);
       if (cancelled) return;
       pageRef.current = page;
-
       const viewport = page.getViewport({ scale, rotation });
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
+      source.width = output.width = Math.floor(viewport.width); source.height = output.height = Math.floor(viewport.height);
+      // PDF.js will call `getContext` internally when rendering. Create the
+      // same context first with the correct `willReadFrequently` hint so the
+      // browser knows ahead of time that pixel readbacks are expected. Store
+      // the created context so we don't call `getContext` with different
+      // option objects later (which can confuse some browsers and cause
+      // warnings).
+      const readsPixels = Boolean(lut) && usePath === "cpu";
+      try {
+        sourceCtxRef.current = source.getContext("2d", { alpha: false, willReadFrequently: readsPixels });
+      } catch (e) {
+        // Some environments may ignore options; fall back to a plain context.
+        sourceCtxRef.current = source.getContext("2d") || null;
+      }
+      // Prefer PDF.js native color transform when available — attempt it
+      // once per document and cache the capability. If it fails, retry
+      // without `pageColors` so the pipeline falls back to GPU/CPU themes.
+      let pageColors = null;
+      if (usePath === "native" && colorMode?.mode === "native") {
+        pageColors = nativeSupportRef.current === false ? null : { foreground: colorMode.fg, background: colorMode.bg };
+      }
 
-      const ctx = canvas.getContext("2d", { alpha: false });
-      const task = page.render({ canvasContext: ctx, viewport });
+      let task = page.render({ canvas: source, viewport, pageColors });
       renderTaskRef.current = task;
-
       try {
         await task.promise;
-      } catch (e) {
-        if (e?.name !== "RenderingCancelledException") throw e;
-        return;
-      } finally {
-        renderTaskRef.current = null;
-      }
-      if (cancelled) return;
-
-      const raw = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      rawImageDataRef.current = raw;
-      ctx.putImageData(
-        lut ? applyTheme(cloneImageData(raw), lut, colorMode?.mode) : raw,
-        0,
-        0
-      );
-      setIsRendered(true);
-    }
-
-    renderPage().catch(() => {});
-
-    return () => {
-      cancelled = true;
-      if (renderTaskRef.current) {
-        try {
-          renderTaskRef.current.cancel();
-        } catch {
-          /* ignore: already settled */
+        // If we used pageColors and haven't cached support, mark it supported
+        if (usePath === "native" && pageColors && nativeSupportRef.current === null) nativeSupportRef.current = true;
+      } catch (error) {
+        // If native render failed and we attempted pageColors, retry without it
+        if ((usePath === "native" && pageColors) && nativeSupportRef.current !== false) {
+          nativeSupportRef.current = false;
+          try {
+            const retry = page.render({ canvas: source, viewport, pageColors: null });
+            renderTaskRef.current = retry;
+            await retry.promise;
+          } catch (err2) {
+            if (err2?.name !== "RenderingCancelledException") throw err2;
+            return;
+          }
+        } else {
+          if (error?.name !== "RenderingCancelledException") throw error;
+          return;
         }
-        renderTaskRef.current = null;
+      } finally { renderTaskRef.current = null; }
+      if (cancelled) return;
+      if (usePath === "webgl") {
+        try {
+          if (!drawWebglTheme(output, source, lut, { shader: effectiveShader || colorMode?.id })) {
+            const fallbackCtx = output.getContext("2d");
+            fallbackCtx?.drawImage(source, 0, 0);
+          }
+        } catch (err) {
+          console.error("WebGL theme render failed, falling back to 2D:", err);
+          const fallbackCtx = output.getContext("2d");
+          fallbackCtx?.drawImage(source, 0, 0);
+        }
+      } else if (readsPixels) {
+        // Use the previously created context reference if available to
+        // guarantee the same creation options and avoid extra getContext
+        // calls with differing option objects.
+        const ctx = sourceCtxRef.current || source.getContext("2d");
+        try {
+          rawImageDataRef.current = ctx.getImageData(0, 0, source.width, source.height);
+        } catch (err) {
+          // If readback fails for any reason, clear cached data and rethrow
+          // so the error surfaces for debugging rather than silently hiding
+          // it.
+          rawImageDataRef.current = null;
+          throw err;
+        }
       }
-    };
-    // `lut`/`colorMode` are intentionally excluded: this effect renders via
-    // pdf.js and caches raw pixels only when visibility/scale/page changes.
-    // Color mode changes are handled by the effect below, which reapplies
-    // from the cache instead of re-invoking the (expensive) pdf.js render.
+      setIsRendered(true);
+    })().catch((error) => console.error(`Unable to render PDF page ${pageNumber}:`, error));
+    return () => { cancelled = true; renderTaskRef.current?.cancel?.(); renderTaskRef.current = null; };
+    // Theme application below deliberately reuses cached source pixels.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, scale, pdfDoc, pageNumber, rotation]);
+  }, [isVisible, scale, pdfDoc, pageNumber, rotation, effectiveRenderPath]);
 
-  // Reapply the color mode from the cached raw pixels — no pdf.js re-render.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const decision = await determineRenderDecision(pdfDoc, pageNumber, colorMode);
+        if (cancelled) return;
+        setEffectiveRenderPath(decision.renderPath);
+        setEffectiveUseWorker(Boolean(decision.useWorker));
+        setEffectiveShader(decision.shader || null);
+      } catch (e) {
+        if (cancelled) return;
+        setEffectiveRenderPath(null);
+        setEffectiveUseWorker(false);
+        setEffectiveShader(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pdfDoc, pageNumber, colorMode]);
+
   useEffect(() => {
     if (!isVisible || !isRendered) return;
-    const raw = rawImageDataRef.current;
-    const canvas = canvasRef.current;
-    if (!raw || !canvas) return;
+    const output = canvasRef.current, source = sourceCanvasRef.current;
+    if (!output) return;
+    const usePath = effectiveRenderPath || defaultRenderPath;
 
-    const ctx = canvas.getContext("2d", { alpha: false });
-    ctx.putImageData(lut ? applyTheme(cloneImageData(raw), lut, colorMode?.mode) : raw, 0, 0);
-  }, [lut, colorMode, isVisible, isRendered]);
+    const renderPixels = async () => {
+      if (usePath === "webgl" && source) {
+        try {
+          if (!drawWebglTheme(output, source, lut, { shader: effectiveShader || colorMode?.id })) {
+            const fallbackCtx = output.getContext("2d");
+            fallbackCtx?.drawImage(source, 0, 0);
+          }
+        } catch (err) {
+          console.error("WebGL theme render failed, falling back to 2D:", err);
+          const fallbackCtx = output.getContext("2d");
+          fallbackCtx?.drawImage(source, 0, 0);
+        }
+        return;
+      }
 
-  return (
-    <canvas
-      ref={canvasRef}
-      data-page-number={pageNumber}
-      style={{
-        display: "block",
-        width: size ? size.width : "100%",
-        height: size ? size.height : 600,
-        // Never theme-derived: the main viewer must be unaffected by UI
-        // theme, and stay pristine white until PDF color mode is applied.
-        background: "#ffffff",
-        borderRadius: 8,
-        boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
-      }}
-    />
-  );
+      const raw = rawImageDataRef.current;
+      if (!raw || !lut) return;
+      const ctx = output.getContext("2d", { alpha: false, willReadFrequently: true });
+      const pixels = cloneImageData(raw);
+      if ((effectiveUseWorker || pixels.width * pixels.height >= WORKER_PIXEL_THRESHOLD) && typeof Worker !== "undefined") {
+        try {
+          const result = await runLutWorker(pixels.data.buffer, lut, colorMode?.mode);
+          const next = new ImageData(new Uint8ClampedArray(result), pixels.width, pixels.height);
+          ctx.putImageData(next, 0, 0);
+        } catch (err) {
+          // Fall back to main-thread processing on worker failure
+          ctx.putImageData(applyTheme(pixels, lut, colorMode?.mode), 0, 0);
+        }
+      } else {
+        ctx.putImageData(applyTheme(pixels, lut, colorMode?.mode), 0, 0);
+      }
+    };
+
+    renderPixels();
+  }, [lut, colorMode, isVisible, isRendered, effectiveRenderPath, effectiveShader]);
+
+  return <><canvas ref={canvasRef} data-page-number={pageNumber} style={{ display: "block", width: size ? size.width : "100%", height: size ? size.height : 600, background: "#ffffff", borderRadius: 8, boxShadow: "0 8px 30px rgba(0,0,0,.12)" }} />
+    <canvas ref={sourceCanvasRef} aria-hidden="true" style={{ display: "none" }} /></>;
 }

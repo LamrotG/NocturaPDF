@@ -102,13 +102,31 @@ export function applyTheme(imageData, lut, themeMode) {
     const b = d[i + 2];
 
     const oldLuma = 0.299 * r + 0.587 * g + 0.114 * b;
-    const newLuma = lut[Math.round(oldLuma)];
+    let newLuma = lut[Math.round(oldLuma)];
+    if (themeMode === "scan") {
+      // For scanned pages, prefer a grayscale tone-mapping that preserves
+      // contrast in midtones while reducing paper brightness. Apply a
+      // gentle nonlinear tone curve that compresses highlights slightly.
+      const t = newLuma / 255;
+      const adjusted = 255 * Math.pow(t, 0.92); // slight gamma for tone mapping
+      newLuma = Math.round(adjusted * (0.86 + 0.14 * (oldLuma / 255)));
+    }
     const { h, s } = rgbToHueSat(r, g, b);
 
     let nr;
     let ng;
     let nb;
-    if (s === 0) {
+    if (themeMode === "overlay" || themeMode === "preserve") {
+      // Preserve: gentle overlay that reduces brightness but keeps color.
+      // Blend original channels with the mapped luminance to reduce
+      // brightness while retaining chroma information.
+      nr = r * 0.62 + newLuma * 0.38;
+      ng = g * 0.62 + newLuma * 0.38;
+      nb = b * 0.62 + newLuma * 0.38;
+    } else if (themeMode === "scan") {
+      // Grayscale tone mapping for scanned pages
+      nr = ng = nb = newLuma;
+    } else if (s === 0) {
       nr = ng = nb = newLuma;
     } else {
       const l = newLuma / 255;
@@ -130,4 +148,66 @@ export function applyTheme(imageData, lut, themeMode) {
   }
 
   return imageData;
+}
+
+// GPU themes sample PDF.js' canvas directly, so there is no Canvas2D pixel
+// readback on the main thread. The LUT remains a compact 256px GPU texture.
+export function drawWebglTheme(canvas, source, lut, options = {}) {
+  const gl = canvas.getContext("webgl", { alpha: false, premultipliedAlpha: false }) || canvas.getContext("experimental-webgl", { alpha: false });
+  if (!gl) return false;
+  const makeShader = (type, code) => { const shader = gl.createShader(type); gl.shaderSource(shader, code); gl.compileShader(shader); return shader; };
+  const vertexSrc = "attribute vec2 p; varying vec2 uv; void main(){uv=(p+1.0)*.5;gl_Position=vec4(p,0.,1.);}";
+
+  // Two fragment shaders: a general-purpose LUT mapper and a Pure Black
+  // variant that emphasises deep blacks and high-contrast text while
+  // attempting to preserve chroma for images.
+  const fragmentGeneral = "precision mediump float;varying vec2 uv;uniform sampler2D page,table;void main(){vec4 c=texture2D(page,vec2(uv.x,1.0-uv.y));float y=dot(c.rgb,vec3(.299,.587,.114));float n=texture2D(table,vec2(y,.5)).r;float k=y>.003?n/y:1.;gl_FragColor=vec4(min(c.rgb*k,1.),1.);}";
+  const fragmentPureBlack = `precision mediump float;
+varying vec2 uv;
+uniform sampler2D page,table;
+void main(){
+  vec4 c = texture2D(page, vec2(uv.x, 1.0 - uv.y));
+  float y = dot(c.rgb, vec3(.299, .587, .114));
+  float mapped = texture2D(table, vec2(y, .5)).r;
+  float scale = y > 0.003 ? mapped / y : 1.0;
+  vec3 scaled = min(c.rgb * scale, vec3(1.0));
+  vec3 lumOnly = vec3(mapped);
+  float preserve = clamp((1.0 - y) * 1.2, 0.0, 1.0);
+  vec3 outc = mix(scaled, lumOnly, 1.0 - preserve);
+  outc = pow(outc, vec3(1.02));
+  gl_FragColor = vec4(outc, 1.0);
+}`;
+  const fragmentGpuDark = `precision mediump float;
+varying vec2 uv;
+uniform sampler2D page,table;
+void main(){
+  vec4 c = texture2D(page, vec2(uv.x, 1.0 - uv.y));
+  float y = dot(c.rgb, vec3(.299, .587, .114));
+  float mapped = texture2D(table, vec2(y, .5)).r;
+  float chroma = length(c.rgb - vec3(y));
+  float chromaFactor = clamp(chroma * 1.5, 0.0, 1.0);
+  float scale = y > 0.003 ? mapped / y : 1.0;
+  vec3 scaled = min(c.rgb * scale, vec3(1.0));
+  vec3 mappedRgb = vec3(mapped);
+  vec3 outc = mix(mappedRgb, scaled, chromaFactor);
+  outc = pow(outc, vec3(1.01));
+  gl_FragColor = vec4(outc, 1.0);
+}`;
+
+  let fragment = fragmentGeneral;
+  if (options.shader === "pureBlack") fragment = fragmentPureBlack;
+  else if (options.shader === "gpuDark") fragment = fragmentGpuDark;
+
+  const vertex = makeShader(gl.VERTEX_SHADER, vertexSrc);
+  const fragmentShader = makeShader(gl.FRAGMENT_SHADER, fragment);
+  const program = gl.createProgram(); gl.attachShader(program, vertex); gl.attachShader(program, fragmentShader); gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return false;
+  gl.viewport(0, 0, canvas.width, canvas.height); gl.useProgram(program);
+  const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+  const point = gl.getAttribLocation(program, "p"); gl.enableVertexAttribArray(point); gl.vertexAttribPointer(point, 2, gl.FLOAT, false, 0, 0);
+  const addTexture = (unit, input) => { const texture = gl.createTexture(); gl.activeTexture(unit); gl.bindTexture(gl.TEXTURE_2D, texture); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input); };
+  addTexture(gl.TEXTURE0, source); gl.uniform1i(gl.getUniformLocation(program, "page"), 0);
+  const lutPixels = new Uint8Array(256 * 4); for (let i = 0; i < 256; i += 1) lutPixels.set([lut[i], lut[i], lut[i], 255], i * 4);
+  addTexture(gl.TEXTURE1, new ImageData(lutPixels, 256, 1)); gl.uniform1i(gl.getUniformLocation(program, "table"), 1);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); return true;
 }

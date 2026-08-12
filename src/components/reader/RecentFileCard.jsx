@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { FileText } from "lucide-react";
 import { XIcon } from "../common/icons.jsx";
 
 /**
@@ -73,12 +74,11 @@ export default function RecentFileCard({ recentFile, onOpenFile, onRemoveFile })
         {!thumbnail && (
           <div
             style={{
-              fontSize: 48,
               color: "var(--text-secondary)",
               opacity: 0.5,
             }}
           >
-            📄
+            <FileText size={48} />
           </div>
         )}
       </div>

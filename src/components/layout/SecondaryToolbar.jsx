@@ -8,18 +8,13 @@ import {
   FitPageIcon,
   FitWidthIcon,
   SearchIcon,
-  SidebarIcon,
   ZoomInIcon,
   ZoomOutIcon,
-  FullscreenIcon,
-  FullscreenExitIcon,
 } from "../common/icons.jsx";
 
 // Thin, utility-only bar directly below the tab strip: page nav, zoom, fit
-// mode, search entry, PDF theme selector, and fullscreen. No branding.
+// mode, search entry, PDF theme selector. No branding.
 export default function SecondaryToolbar({
-  sidebarCollapsed,
-  onToggleSidebar,
   currentPage,
   numPages,
   onJumpToPage,
@@ -31,8 +26,6 @@ export default function SecondaryToolbar({
   colorModes,
   colorModeId,
   onColorModeChange,
-  isFullscreen,
-  onToggleFullscreen,
 }) {
   const [pageInput, setPageInput] = useState("");
   const [themeOpen, setThemeOpen] = useState(false);
@@ -78,14 +71,6 @@ export default function SecondaryToolbar({
         flexWrap: "wrap",
       }}
     >
-      <IconButton
-        aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-        active={!sidebarCollapsed}
-        onClick={onToggleSidebar}
-      >
-        <SidebarIcon />
-      </IconButton>
-
       {hasDoc && (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -171,14 +156,10 @@ export default function SecondaryToolbar({
         </>
       )}
 
-      {/* Right side: PDF theme selector + fullscreen */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
-        {/* PDF theme dropdown */}
-        <div
-          style={{ position: "relative" }}
-          onMouseEnter={() => setThemeOpen(true)}
-          onMouseLeave={() => setTimeout(() => setThemeOpen(false), 150)}
-        >
+      {/* Right side: PDF theme selector */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+        <span style={{ fontSize: 12, color: "var(--text)", opacity: 0.85 }}>Theme</span>
+        <div style={{ position: "relative" }}>
           <button
             onClick={() => setThemeOpen((v) => !v)}
             style={{
@@ -194,7 +175,6 @@ export default function SecondaryToolbar({
               cursor: "pointer",
             }}
           >
-            <span style={{ opacity: 0.6 }}>Off</span>
             <span style={{ fontWeight: 600 }}>{currentMode?.label || "Off"}</span>
             <ChevronDownIcon size={14} />
           </button>
@@ -224,7 +204,7 @@ export default function SecondaryToolbar({
                     display: "block",
                     width: "100%",
                     textAlign: "left",
-                    padding: "6px 10px",
+                    padding: "8px 10px",
                     fontSize: 13,
                     border: "none",
                     borderRadius: 6,
@@ -233,22 +213,15 @@ export default function SecondaryToolbar({
                     cursor: "pointer",
                   }}
                 >
-                  {m.label}
+                  <div style={{ fontWeight: 600 }}>{m.label}</div>
+                  <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{m.summary}</div>
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Fullscreen toggle */}
-        <IconButton
-          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          active={isFullscreen}
-          onClick={onToggleFullscreen}
-        >
-          {isFullscreen ? <FullscreenExitIcon size={18} /> : <FullscreenIcon size={18} />}
-        </IconButton>
+      
       </div>
     </div>
   );

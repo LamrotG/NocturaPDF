@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { FileText, Cloud } from "lucide-react";
 import { PlusIcon, CloudOffIcon, ListIcon, GridIcon, TrashIcon } from "../common/icons.jsx";
 import {
   getRecentDocuments,
@@ -120,11 +121,10 @@ function CardDoc({ doc, onOpen, onRemoveFromLibrary, showRemove }) {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 18,
             flexShrink: 0,
           }}
         >
-          📄
+          <FileText size={18} />
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
@@ -200,11 +200,10 @@ function ListRow({ doc, onOpen, onRemoveFromLibrary, showRemove }) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 16,
           flexShrink: 0,
         }}
       >
-        📄
+        <FileText size={16} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
@@ -266,14 +265,14 @@ export default function ReaderHome({
 }) {
   const [recent, setRecent] = useState([]);
   const [localLibrary, setLocalLibrary] = useState([]);
+  const [cloudLibrary, setCloudLibrary] = useState([]);
   const [opfsAvailable, setOpfsAvailable] = useState(false);
   const [viewMode, setViewMode] = useState(() => getRecentView());
   const [confirmClear, setConfirmClear] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [rec, local] = await Promise.all([
-        getRecentDocuments(),
+      const [rec, local, cloud] = await Promise.all([
         getRecentDocuments(),
         getLocalLibraryDocuments(),
         getCloudLibraryDocuments(),
@@ -514,10 +513,38 @@ export default function ReaderHome({
             <>
               {!opfsAvailable ? (
                 <EmptySection message="Local Library requires OPFS, which is not supported in this browser." />
-              ) : localLibrary.length === 0 ? (
-                <EmptySection message="No documents in your Local Library yet. Add PDFs to keep them available offline." />
               ) : (
-                renderDocs(localLibrary, true)
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <button
+                      onClick={onOpenFile}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "10px 20px",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        borderRadius: 10,
+                        border: "1px solid var(--accent)",
+                        background: "var(--accent)",
+                        color: "#fff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <PlusIcon size={16} />
+                      Open File
+                    </button>
+                    <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "8px 0 0" }}>
+                      Documents you open here are saved to your device for offline access.
+                    </p>
+                  </div>
+                  {localLibrary.length === 0 ? (
+                    <EmptySection message="No documents in your Local Library yet. Open a PDF to save it here for offline reading." />
+                  ) : (
+                    renderDocs(localLibrary, true)
+                  )}
+                </>
               )}
             </>
           )}
@@ -534,14 +561,49 @@ export default function ReaderHome({
                 fontSize: 14,
               }}
             >
-              <div style={{ fontSize: 40, marginBottom: 12 }}>☁️</div>
-              <p style={{ margin: "0 0 8px", fontWeight: 500, color: "var(--text-h)" }}>
-                Cloud sync is not connected
-              </p>
-              <p style={{ margin: 0, fontSize: 13 }}>
-                Your documents stay local and private. Cloud functionality will be
-                available in a future update.
-              </p>
+              <div style={{ marginBottom: 12, color: "var(--text-secondary)" }}>
+                <Cloud size={40} />
+              </div>
+              {isSignedIn ? (
+                <>
+                  <p style={{ margin: "0 0 8px", fontWeight: 500, color: "var(--text-h)" }}>
+                    Cloud Library
+                  </p>
+                  <p style={{ margin: "0 0 16px", fontSize: 13 }}>
+                    {cloudLibrary.length > 0
+                      ? `${cloudLibrary.length} document${cloudLibrary.length > 1 ? "s" : ""} in your cloud library.`
+                      : "No documents in your cloud library yet."}
+                  </p>
+                  {cloudLibrary.length > 0 && renderDocs(cloudLibrary, false)}
+                </>
+              ) : (
+                <>
+                  <p style={{ margin: "0 0 8px", fontWeight: 500, color: "var(--text-h)" }}>
+                    Cloud sync is not connected
+                  </p>
+                  <p style={{ margin: "0 0 16px", fontSize: 13 }}>
+                    Sign in to sync your documents across devices.
+                  </p>
+                  <button
+                    onClick={onSignIn}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 20px",
+                      fontSize: 14,
+                      fontWeight: 600,
+                      borderRadius: 10,
+                      border: "1px solid var(--accent)",
+                      background: "var(--accent)",
+                      color: "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Sign in / Connect to Cloud
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
