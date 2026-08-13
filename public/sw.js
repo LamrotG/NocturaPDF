@@ -107,11 +107,19 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
+          // If the server returns a non-OK response (e.g. 404 for an SPA
+          // route on a static host without rewrite rules), fall back to the
+          // cached index.html so the client-side router can handle the path.
           if (response.ok) {
             const clone = response.clone();
             caches.open(APP_SHELL_CACHE).then((cache) => cache.put("/index.html", clone));
+            return response;
           }
-          return response;
+          // Server returned an error (404, 500, etc.) — serve the SPA shell
+          // so the client-side router can handle the route.
+          return caches.match("/index.html").then(
+            (cached) => cached || Response.error()
+          );
         })
         .catch(() =>
           caches.match(request).then((cached) => cached || caches.match("/index.html"))
