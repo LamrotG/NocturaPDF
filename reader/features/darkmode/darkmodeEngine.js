@@ -153,7 +153,16 @@ export function applyTheme(imageData, lut, themeMode) {
 // GPU themes sample PDF.js' canvas directly, so there is no Canvas2D pixel
 // readback on the main thread. The LUT remains a compact 256px GPU texture.
 export function drawWebglTheme(canvas, source, lut, options = {}) {
-  const gl = canvas.getContext("webgl", { alpha: false, premultipliedAlpha: false }) || canvas.getContext("experimental-webgl", { alpha: false });
+  // Render to an internal offscreen canvas, then blit the result onto the
+  // visible `canvas` with a 2D context. A canvas can only ever have ONE
+  // context type: once getContext("webgl") is called on it, getContext("2d")
+  // returns null forever — which would break every CPU fallback (drawImage /
+  // putImageData) if WebGL ever fails. Keeping the WebGL context off the
+  // visible canvas means the 2D fallback always works.
+  const glCanvas = document.createElement("canvas");
+  glCanvas.width = canvas.width;
+  glCanvas.height = canvas.height;
+  const gl = glCanvas.getContext("webgl", { alpha: false, premultipliedAlpha: false }) || glCanvas.getContext("experimental-webgl", { alpha: false });
   if (!gl) return false;
   const makeShader = (type, code) => { const shader = gl.createShader(type); gl.shaderSource(shader, code); gl.compileShader(shader); return shader; };
   const vertexSrc = "attribute vec2 p; varying vec2 uv; void main(){uv=(p+1.0)*.5;gl_Position=vec4(p,0.,1.);}";
@@ -202,12 +211,21 @@ void main(){
   const fragmentShader = makeShader(gl.FRAGMENT_SHADER, fragment);
   const program = gl.createProgram(); gl.attachShader(program, vertex); gl.attachShader(program, fragmentShader); gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return false;
-  gl.viewport(0, 0, canvas.width, canvas.height); gl.useProgram(program);
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height); gl.useProgram(program);
   const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
   const point = gl.getAttribLocation(program, "p"); gl.enableVertexAttribArray(point); gl.vertexAttribPointer(point, 2, gl.FLOAT, false, 0, 0);
   const addTexture = (unit, input) => { const texture = gl.createTexture(); gl.activeTexture(unit); gl.bindTexture(gl.TEXTURE_2D, texture); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input); };
   addTexture(gl.TEXTURE0, source); gl.uniform1i(gl.getUniformLocation(program, "page"), 0);
-  const lutPixels = new Uint8Array(256 * 4); for (let i = 0; i < 256; i += 1) lutPixels.set([lut[i], lut[i], lut[i], 255], i * 4);
+  // ImageData requires a Uint8ClampedArray — a plain Uint8Array throws
+  // "Failed to construct 'ImageData': The provided value is not of type
+  // 'ImageDataSettings'".
+  const lutPixels = new Uint8ClampedArray(256 * 4); for (let i = 0; i < 256; i += 1) lutPixels.set([lut[i], lut[i], lut[i], 255], i * 4);
   addTexture(gl.TEXTURE1, new ImageData(lutPixels, 256, 1)); gl.uniform1i(gl.getUniformLocation(program, "table"), 1);
-  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); return true;
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  // Blit the GPU result onto the visible canvas with a 2D context.
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) return false;
+  ctx.drawImage(glCanvas, 0, 0);
+  return true;
 }

@@ -50,7 +50,7 @@ async function savePdfToFile(file, suggestedName) {
   URL.revokeObjectURL(url);
 }
 
-function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNavigateReader, onNavigate }) {
+function Shell({ showHomeView = false, showSettingsView = false, showProfileView = false, onGoHome, onNavigateReader, onNavigate }) {
   const { resolvedTheme } = useUiTheme();
   const { colorModeId, setColorModeId, colorMode, lut, colorModes } = usePdfColorMode();
   const { tabs, activeTabId, activeTab, openTab, closeTab, setActiveTab, updateTab } = useAppStore();
@@ -566,6 +566,8 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
 
           {showSettingsView ? (
             <SettingsPage onNavigate={onNavigate} />
+          ) : showProfileView ? (
+            <ProfileSettingsPage onNavigate={onNavigate} />
           ) : showHomeView || !activeTab ? (
             <ReaderHome
               onOpenFile={handleOpenFileDialog}
@@ -749,6 +751,7 @@ function AppRoot() {
         <AppStoreProvider>
           <Shell
             showHomeView={true}
+            showProfileView={true}
             onGoHome={() => navigate("/app")}
             onNavigateReader={() => navigate("/app")}
             onNavigate={navigate}
