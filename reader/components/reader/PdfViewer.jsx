@@ -3,17 +3,16 @@ import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mj
 import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import ScrollContainer from "./ScrollContainer.jsx";
 
-if (typeof window !== "undefined" && typeof Worker !== "undefined") {
-  try {
-    const pdfWorkerPort = new Worker(pdfWorkerUrl, { type: "module" });
-    GlobalWorkerOptions.workerPort = pdfWorkerPort;
-  } catch (error) {
-    console.warn("Unable to initialize pdf.js worker port, falling back to workerSrc:", error);
-    GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-  }
-} else {
-  GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-}
+// IMPORTANT: We set workerSrc (not workerPort). A module-level workerPort is
+// transferred to the first document; when pdfDoc.destroy() runs (unmount,
+// document switch, or React StrictMode double-mount) that shared worker gets
+// terminated while GlobalWorkerOptions.workerPort still points at it. The next
+// getDocument() then reuses the stale port and page.render() blows up with:
+//   TypeError: Cannot read properties of null (reading 'sendWithPromise')
+//   at getOptionalContentConfig()
+// With workerSrc, pdfjs-dist creates + owns a fresh worker per document and
+// destroy() cleans it up safely — no null messageHandler, no stale worker.
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 // Owns document load/lifecycle only — per-page rendering, virtualization and
 // theme application live in ScrollContainer/PageCanvas.
@@ -70,7 +69,19 @@ export default function PdfViewer({
 
         const loadingTask = getDocument(src);
         const nextPdf = await loadingTask.promise;
-        if (cancelled) return;
+        if (cancelled) {
+          // StrictMode/dev mount churn or a file swap can cancel before the
+          // document resolves — release its worker so it never lingers as a
+          // stale port for a later getDocument() (which is what causes the
+          // "Cannot read properties of null (reading 'sendWithPromise')"
+          // error in page.render()/getOptionalContentConfig()).
+          try {
+            nextPdf.destroy();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
 
         setPdfDoc((prev) => {
           if (prev && prev !== nextPdf) {
