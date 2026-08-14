@@ -84,6 +84,10 @@ export default function PageCanvas({ pdfDoc, pageNumber, containerWidth, contain
       const textLayer = textLayerRef.current;
       if (textLayer) {
         try {
+          // If the owning document is no longer the current one (a new
+          // document was loaded and destroyed this worker), don't issue a
+          // getTextContent — it would fail with "Worker task was terminated".
+          if (pageOwnerRef.current !== pdfDocRef.current) return;
           const textContent = await page.getTextContent();
           if (cancelled) return;
           textLayer.innerHTML = "";

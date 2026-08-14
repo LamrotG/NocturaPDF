@@ -32,7 +32,12 @@ export default function PdfSearch({ pdfDoc, onJumpToPage, onClose, initialQuery 
       try {
         for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
           if (seq !== searchSeqRef.current) return; // stale search
+          // If the document's worker was destroyed mid-search (e.g. the user
+          // switched tabs/files), pdf.js methods throw "Worker was destroyed" /
+          // "Worker task was terminated". Bail out cleanly instead.
+          if (!pdfDoc || !pdfDoc.getPage) return;
           const page = await pdfDoc.getPage(pageNum);
+          if (!page || !page.getTextContent) continue;
           const content = await page.getTextContent();
           const pageText = content.items
             .map((item) => (typeof item.str === "string" ? item.str : ""))

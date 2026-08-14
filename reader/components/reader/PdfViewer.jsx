@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import ScrollContainer from "./ScrollContainer.jsx";
@@ -36,6 +36,23 @@ export default function PdfViewer({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Keep the latest callbacks in refs so the load effect below depends only on
+  // `file`. Previously `handleDocumentLoad` (from App.jsx) changed identity
+  // after `updateTab` mutated the store, which re-ran the load effect *after*
+  // the document had already loaded. That created a NEW document and called
+  // destroy() on the live one — terminating its worker while PageCanvas /
+  // PdfSearch were mid getTextContent, producing:
+  //   "Warning: getTextContent - ignoring errors during ... Worker task was terminated".
+  const onDocumentLoadRef = useRef(onDocumentLoad);
+  onDocumentLoadRef.current = onDocumentLoad;
+  const onNumPagesChangeRef = useRef(onNumPagesChange);
+  onNumPagesChangeRef.current = onNumPagesChange;
+
+  // Guards against calling getDocument() again when a load is already in
+  // flight (e.g. StrictMode dev double-mount or a spurious effect re-run) —
+  // avoids a second document creation that would destroy the first worker.
+  const loadInFlightRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -45,10 +62,16 @@ export default function PdfViewer({
       if (!file) {
         setPdfDoc(null);
         setNumPages(0);
-        onDocumentLoad?.(null);
+        onDocumentLoadRef.current?.(null);
         return;
       }
 
+      // If a load is already in flight, don't start a second one — creating a
+      // second document would destroy the first worker mid-flight.
+      if (loadInFlightRef.current) {
+        return;
+      }
+      loadInFlightRef.current = true;
       setIsLoading(true);
 
       try {
@@ -95,11 +118,12 @@ export default function PdfViewer({
         });
         const total = nextPdf.numPages || 0;
         setNumPages(total);
-        onNumPagesChange?.(total);
-        onDocumentLoad?.(nextPdf);
+        onNumPagesChangeRef.current?.(total);
+        onDocumentLoadRef.current?.(nextPdf);
       } catch (e) {
         if (!cancelled) setError(e?.message || "Failed to load PDF.");
       } finally {
+        loadInFlightRef.current = false;
         if (!cancelled) setIsLoading(false);
       }
     }
@@ -109,7 +133,11 @@ export default function PdfViewer({
     return () => {
       cancelled = true;
     };
-  }, [file, onDocumentLoad, onNumPagesChange]);
+    // Intentionally depend only on `file`: callback identity changes (from
+    // App.jsx's tab store mutations) must NOT re-create / destroy the pdf.js
+    // document — that is what was killing the worker with in-flight
+    // getTextContent calls.
+  }, [file]);
 
   // Destroy the pdf.js document on unmount or when it's replaced.
   useEffect(() => {

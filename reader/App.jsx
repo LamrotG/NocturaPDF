@@ -180,17 +180,27 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
     e.target.value = "";
   };
 
+  // `activeTab` changes whenever the store is updated (updateTab swaps the tab
+  // object). If we used it directly as a callback dep, handleDocumentLoad would
+  // change identity after the document loads, which would re-run PdfViewer's
+  // load effect → creating a NEW document and destroying the live worker while
+  // PageCanvas/PdfSearch are mid getTextContent ("Worker task was terminated").
+  // Keep it in a ref so the callback stays stable.
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+
   // Track recently opened file when PDF is loaded
   const handleDocumentLoad = useCallback(
     async (pdfDocument) => {
       setPdfDoc(pdfDocument);
 
-      if (activeTab && pdfDocument) {
+      const tab = activeTabRef.current;
+      if (tab && pdfDocument) {
         try {
           // Resolve persistent document identity + record the open.
-          const record = await recordDocumentOpen(activeTab.file, pdfDocument);
+          const record = await recordDocumentOpen(tab.file, pdfDocument);
           setDocumentId(record.id);
-          updateTab(activeTab.id, { documentId: record.id });
+          updateTab(tab.id, { documentId: record.id });
 
           // Restore reading position if we have one.
           const pos = record.readingPosition;
@@ -213,7 +223,8 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
         }
       }
     },
-    [activeTab, updateTab]
+    // Stable identity: only updateTab is a real dep; activeTab is read via a ref.
+    [updateTab]
   );
 
   const handleScrollPositionChange = useCallback(
@@ -312,7 +323,7 @@ function Shell({ showHomeView = false, showSettingsView = false, onGoHome, onNav
     if (!activeTab?.file) return;
     try {
       // If the file came from the Local Library (OPFS), write it back.
-      const { readLocalPdf, saveLocalPdf } = await import("./services/opfsService.js");
+      const { saveLocalPdf } = await import("./services/opfsService.js");
       const { getDocument } = await import("./persistence/index.js");
       const doc = activeTab.documentId ? await getDocument(activeTab.documentId) : null;
       if (doc?.localKey) {
