@@ -13,9 +13,27 @@ export default function PageCanvas({ pdfDoc, pageNumber, containerWidth, contain
   const sourceCanvasRef = useRef(null);
   const sourceCtxRef = useRef(null);
   const pageRef = useRef(null);
+  const pageOwnerRef = useRef(null); // pdfDoc that pageRef.current belongs to
+  const pdfDocRef = useRef(pdfDoc);
+  pdfDocRef.current = pdfDoc;
   const renderTaskRef = useRef(null);
   const rawImageDataRef = useRef(null);
   const textLayerRef = useRef(null);
+
+  // Only hand out a cached Page if it belongs to the *current* document.
+  // Otherwise a page cached from a previous (now destroyed) pdfDoc would be
+  // passed to render(), which then crashes in getOptionalContentConfig():
+  //   TypeError: Cannot read properties of null (reading 'sendWithPromise')
+  const getPageSafe = async (pageNumber) => {
+    if (pageRef.current && pageOwnerRef.current === pdfDocRef.current) {
+      return pageRef.current;
+    }
+    pageRef.current = null;
+    const fresh = await pdfDocRef.current.getPage(pageNumber);
+    pageRef.current = fresh;
+    pageOwnerRef.current = pdfDocRef.current;
+    return fresh;
+  };
   const [unscaledSize, setUnscaledSize] = useState(null);
   const [isRendered, setIsRendered] = useState(false);
   const defaultRenderPath = useMemo(() => colorMode?.renderer === "webgl" ? "webgl" : colorMode?.mode === "native" ? "native" : "cpu", [colorMode]);
@@ -26,9 +44,8 @@ export default function PageCanvas({ pdfDoc, pageNumber, containerWidth, contain
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const page = pageRef.current || await pdfDoc.getPage(pageNumber);
+      const page = await getPageSafe(pageNumber);
       if (cancelled) return;
-      pageRef.current = page;
       const viewport = page.getViewport({ scale: 1, rotation });
       setUnscaledSize({ width: viewport.width, height: viewport.height });
     })().catch(() => {});
@@ -47,9 +64,8 @@ export default function PageCanvas({ pdfDoc, pageNumber, containerWidth, contain
     (async () => {
       const output = canvasRef.current;
       if (!output) return;
-      const page = pageRef.current || await pdfDoc.getPage(pageNumber);
+      const page = await getPageSafe(pageNumber);
       if (cancelled) return;
-      pageRef.current = page;
       const viewport = page.getViewport({ scale, rotation });
       output.width = Math.floor(viewport.width);
       output.height = Math.floor(viewport.height);
@@ -116,9 +132,8 @@ export default function PageCanvas({ pdfDoc, pageNumber, containerWidth, contain
       const output = canvasRef.current;
       const source = sourceCanvasRef.current;
       if (!output || !source) return;
-      const page = pageRef.current || await pdfDoc.getPage(pageNumber);
+      const page = await getPageSafe(pageNumber);
       if (cancelled) return;
-      pageRef.current = page;
       const viewport = page.getViewport({ scale, rotation });
       source.width = output.width = Math.floor(viewport.width);
       source.height = output.height = Math.floor(viewport.height);

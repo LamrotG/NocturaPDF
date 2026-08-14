@@ -127,7 +127,14 @@ export default function PdfViewer({
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       {pdfDoc && numPages > 0 && (
+        // Key by the document object so that switching/loading a new document
+        // fully remounts the scroll tree. Without this, PageCanvas instances
+        // persist across documents (keyed only by page number) and keep their
+        // stale pageRef pointing at the *old* document's Page object — calling
+        // render() on it crashes in getOptionalContentConfig() with
+        // "Cannot read properties of null (reading 'sendWithPromise')".
         <ScrollContainer
+          key={pdfDoc}
           pdfDoc={pdfDoc}
           numPages={numPages}
           colorMode={colorMode}
