@@ -1,8 +1,6 @@
-import React, { useRef, useState } from "react";
-import SiteHeader from "../../web/components/SiteHeader.jsx";
-import SiteFooter from "../../web/components/SiteFooter.jsx";
+import React, { useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth.js";
-import { updateProfile, updatePassword, deleteAccount } from "../services/authService.js";
+import { updateProfile, updatePassword, updateEmail, deleteAccount } from "../services/authService.js";
 
 const PRESET_COLORS = ["#4caf50", "#ff9800", "#ffc107", "#9c27b0", "#2196f3"];
 const MAX_AVATAR_SIZE = 1 * 1024 * 1024; // 1 MB
@@ -89,9 +87,56 @@ function cropToSquare(file) {
   });
 }
 
+/**
+ * Reads a list of known connected devices from localStorage or falls back to
+ * a single entry for the current session. Kept lightweight — real cross-device
+ * session management would live server-side.
+ */
+function useConnectedDevices() {
+  // Capture "now" once in state — React state initializers are pure.
+  const [nowTick] = useState(() => Date.now());
+  return useMemo(() => {
+    const stored = localStorage.getItem("nocturapdf:connectedDevices");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      } catch {
+        /* ignore */
+      }
+    }
+    // Fallback: the current browser session.
+    const ua = navigator.userAgent;
+    let deviceName = "This Device";
+    if (/Android/i.test(ua)) deviceName = "Android Device";
+    else if (/iPhone|iPad|iPod/i.test(ua)) deviceName = "iPhone / iPad";
+    else if (/Windows/i.test(ua)) deviceName = "Windows Computer";
+    else if (/Mac/i.test(ua)) deviceName = "Mac Computer";
+    else if (/Linux/i.test(ua)) deviceName = "Linux Computer";
+
+    return [
+      {
+        name: deviceName,
+        browser: /Edg/i.test(ua)
+          ? "Edge"
+          : /Chrome/i.test(ua)
+            ? "Chrome"
+            : /Firefox/i.test(ua)
+              ? "Firefox"
+              : /Safari/i.test(ua)
+                ? "Safari"
+                : "Browser",
+        lastActive: nowTick,
+      },
+    ];
+    // nowTick is stable per render (from useState initializer).
+  }, [nowTick]);
+}
+
 export default function ProfileSettingsPage({ onNavigate }) {
   const { user, profile, signOut } = useAuth();
   const fileInputRef = useRef(null);
+  const connectedDevices = useConnectedDevices();
 
   // Edit profile state
   const [name, setName] = useState(profile?.name || "");
@@ -100,6 +145,12 @@ export default function ProfileSettingsPage({ onNavigate }) {
   const [profileMsg, setProfileMsg] = useState("");
   const [profileError, setProfileError] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+
+  // Change email state
+  const [newEmail, setNewEmail] = useState(user?.email || "");
+  const [emailMsg, setEmailMsg] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
 
   // Change password state
   const [oldPassword, setOldPassword] = useState("");
@@ -161,6 +212,20 @@ export default function ProfileSettingsPage({ onNavigate }) {
     setProfileMsg("Profile updated successfully.");
   };
 
+  const handleChangeEmail = async (e) => {
+    e.preventDefault();
+    setEmailMsg("");
+    setEmailError("");
+    setSavingEmail(true);
+    const res = await updateEmail(newEmail);
+    setSavingEmail(false);
+    if (res.error) {
+      setEmailError(res.error);
+      return;
+    }
+    setEmailMsg("A verification link has been sent to your new email address.");
+  };
+
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPwdMsg("");
@@ -200,232 +265,373 @@ export default function ProfileSettingsPage({ onNavigate }) {
     onNavigate("/");
   };
 
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
-      <SiteHeader onNavigate={onNavigate} />
+  const handleLogOut = async () => {
+    await signOut();
+    onNavigate("/app");
+  };
 
-      <div style={{ maxWidth: 520, margin: "0 auto", padding: "56px 24px 88px" }}>
-        <h1 style={{ fontSize: 28, color: "var(--text-h)", margin: "0 0 8px" }}>Profile Settings</h1>
-        <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 8px" }}>
+  // Uses a stable "now" from state so the function stays pure during render.
+  const [nowTick] = useState(() => Date.now());
+  const formatDeviceTime = (ts) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const diff = Math.max(0, nowTick - d.getTime());
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Active now";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return d.toLocaleDateString();
+  };
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        overflowY: "auto",
+        padding: "24px 24px 40px",
+        boxSizing: "border-box",
+        background: "var(--bg)",
+        color: "var(--text)",
+      }}
+    >
+      <div style={{ maxWidth: 600, margin: "0 auto", paddingBottom: 32 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 600, color: "var(--text-h)", margin: "0 0 4px" }}>
+          Profile Settings
+        </h1>
+        <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 24px" }}>
           Signed in as <strong>{user?.email}</strong>
         </p>
 
         {/* ── Edit Profile ─────────────────────────────────────────── */}
-        <h2 style={sectionTitleStyle}>Edit Profile</h2>
-        <form onSubmit={handleSaveProfile} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div>
-            <label style={labelStyle} htmlFor="profile-name">Name</label>
-            <input
-              id="profile-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={inputStyle}
-              placeholder="Your name"
-            />
-          </div>
-
-          {/* ── Avatar selector ─────────────────────────────────── */}
-          <div>
-            <label style={labelStyle}>Avatar</label>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              {PRESET_COLORS.map((color) => (
-                <AvatarCircle
-                  key={color}
-                  color={color}
-                  selected={!customAvatar && avatarColor === color}
-                  onClick={() => {
-                    setAvatarColor(color);
-                    setCustomAvatar("");
-                  }}
-                >
-                  {(profile?.name || "U").charAt(0).toUpperCase()}
-                </AvatarCircle>
-              ))}
-
-              {/* Custom avatar upload */}
-              <AvatarCircle
-                color="#607d8b"
-                selected={Boolean(customAvatar)}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {customAvatar ? (
-                  <img
-                    src={customAvatar}
-                    alt=""
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  />
-                ) : (
-                  <span style={{ fontSize: 24 }}>+</span>
-                )}
-              </AvatarCircle>
+        <section style={{ marginBottom: 32 }}>
+          <h2 style={sectionTitleStyle}>Edit Profile</h2>
+          <form onSubmit={handleSaveProfile} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle} htmlFor="profile-name">Name</label>
+              <input
+                id="profile-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={inputStyle}
+                placeholder="Your name"
+              />
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleAvatarUpload}
-              style={{ display: "none" }}
-            />
-            <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "8px 0 0" }}>
-              Max 1 MB. Images are cropped to 200 × 200 px.
-            </p>
-          </div>
 
-          {profileError && <p style={errorStyle}>{profileError}</p>}
-          {profileMsg && <p style={successStyle}>{profileMsg}</p>}
+            {/* ── Avatar selector ─────────────────────────────────── */}
+            <div>
+              <label style={labelStyle}>Avatar</label>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {PRESET_COLORS.map((color) => (
+                  <AvatarCircle
+                    key={color}
+                    color={color}
+                    selected={!customAvatar && avatarColor === color}
+                    onClick={() => {
+                      setAvatarColor(color);
+                      setCustomAvatar("");
+                    }}
+                  >
+                    {(name || profile?.name || "U").charAt(0).toUpperCase()}
+                  </AvatarCircle>
+                ))}
 
-          <button
-            type="submit"
-            disabled={savingProfile}
-            style={{
-              padding: "12px 24px",
-              fontSize: 15,
-              fontWeight: 600,
-              borderRadius: 10,
-              border: "1px solid var(--accent)",
-              background: "var(--accent)",
-              color: "#fff",
-              cursor: savingProfile ? "default" : "pointer",
-              opacity: savingProfile ? 0.6 : 1,
-            }}
-          >
-            {savingProfile ? "Saving…" : "Save Profile"}
-          </button>
-        </form>
+                {/* Custom avatar upload */}
+                <AvatarCircle
+                  color="#607d8b"
+                  selected={Boolean(customAvatar)}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {customAvatar ? (
+                    <img
+                      src={customAvatar}
+                      alt=""
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  ) : (
+                    <span style={{ fontSize: 24 }}>+</span>
+                  )}
+                </AvatarCircle>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarUpload}
+                style={{ display: "none" }}
+              />
+              <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "8px 0 0" }}>
+                Max 1 MB. Images are cropped to 200 × 200 px.
+              </p>
+            </div>
+
+            {profileError && <p style={errorStyle}>{profileError}</p>}
+            {profileMsg && <p style={successStyle}>{profileMsg}</p>}
+
+            <button
+              type="submit"
+              disabled={savingProfile}
+              style={{
+                padding: "12px 24px",
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 10,
+                border: "1px solid var(--accent)",
+                background: "var(--accent)",
+                color: "#fff",
+                cursor: savingProfile ? "default" : "pointer",
+                opacity: savingProfile ? 0.6 : 1,
+              }}
+            >
+              {savingProfile ? "Saving…" : "Save Profile"}
+            </button>
+          </form>
+        </section>
+
+        {/* ── Change Email ───────────────────────────────────────── */}
+        <section style={{ marginBottom: 32 }}>
+          <h2 style={sectionTitleStyle}>Change Email</h2>
+          <form onSubmit={handleChangeEmail} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle} htmlFor="new-email">Email Address</label>
+              <input
+                id="new-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                style={inputStyle}
+                placeholder="you@example.com"
+              />
+            </div>
+            {emailError && <p style={errorStyle}>{emailError}</p>}
+            {emailMsg && <p style={successStyle}>{emailMsg}</p>}
+            <button
+              type="submit"
+              disabled={savingEmail}
+              style={{
+                padding: "12px 24px",
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 10,
+                border: "1px solid var(--accent)",
+                background: "var(--accent)",
+                color: "#fff",
+                cursor: savingEmail ? "default" : "pointer",
+                opacity: savingEmail ? 0.6 : 1,
+              }}
+            >
+              {savingEmail ? "Sending…" : "Change Email"}
+            </button>
+          </form>
+        </section>
 
         {/* ── Change Password ──────────────────────────────────────── */}
-        <h2 style={sectionTitleStyle}>Change Password</h2>
-        <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div>
-            <label style={labelStyle} htmlFor="old-password">Current Password</label>
-            <input
-              id="old-password"
-              type="password"
-              required
-              autoComplete="current-password"
-              value={oldPassword}
-              onChange={(e) => setOldPassword(e.target.value)}
-              style={inputStyle}
-              placeholder="••••••••"
-            />
-          </div>
+        <section style={{ marginBottom: 32 }}>
+          <h2 style={sectionTitleStyle}>Change Password</h2>
+          <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle} htmlFor="old-password">Current Password</label>
+              <input
+                id="old-password"
+                type="password"
+                required
+                autoComplete="current-password"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                style={inputStyle}
+                placeholder="••••••••"
+              />
+            </div>
 
-          <div>
-            <label style={labelStyle} htmlFor="new-password">New Password</label>
-            <input
-              id="new-password"
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              style={inputStyle}
-              placeholder="At least 8 characters"
-            />
-          </div>
+            <div>
+              <label style={labelStyle} htmlFor="new-password">New Password</label>
+              <input
+                id="new-password"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                style={inputStyle}
+                placeholder="At least 8 characters"
+              />
+            </div>
 
-          <div>
-            <label style={labelStyle} htmlFor="confirm-new-password">Confirm New Password</label>
-            <input
-              id="confirm-new-password"
-              type="password"
-              required
-              autoComplete="new-password"
-              value={confirmNewPassword}
-              onChange={(e) => setConfirmNewPassword(e.target.value)}
-              style={inputStyle}
-              placeholder="Re-enter new password"
-            />
-          </div>
+            <div>
+              <label style={labelStyle} htmlFor="confirm-new-password">Confirm New Password</label>
+              <input
+                id="confirm-new-password"
+                type="password"
+                required
+                autoComplete="new-password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                style={inputStyle}
+                placeholder="Re-enter new password"
+              />
+            </div>
 
-          {pwdError && <p style={errorStyle}>{pwdError}</p>}
-          {pwdMsg && <p style={successStyle}>{pwdMsg}</p>}
+            {pwdError && <p style={errorStyle}>{pwdError}</p>}
+            {pwdMsg && <p style={successStyle}>{pwdMsg}</p>}
 
-          <button
-            type="submit"
-            disabled={savingPwd}
+            <button
+              type="submit"
+              disabled={savingPwd}
+              style={{
+                padding: "12px 24px",
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 10,
+                border: "1px solid var(--accent)",
+                background: "var(--accent)",
+                color: "#fff",
+                cursor: savingPwd ? "default" : "pointer",
+                opacity: savingPwd ? 0.6 : 1,
+              }}
+            >
+              {savingPwd ? "Updating…" : "Change Password"}
+            </button>
+          </form>
+        </section>
+
+        {/* ── Connected Devices ───────────────────────────────────── */}
+        <section style={{ marginBottom: 32 }}>
+          <h2 style={sectionTitleStyle}>Connected Devices</h2>
+          <div
             style={{
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              overflow: "hidden",
+              background: "var(--code-bg)",
+            }}
+          >
+            {connectedDevices.map((device, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "12px 16px",
+                  borderBottom: i < connectedDevices.length - 1 ? "1px solid var(--border)" : "none",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-h)" }}>
+                    {device.name}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                    {device.browser} · Last active {formatDeviceTime(device.lastActive)}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    background: "var(--accent-bg)",
+                    color: "var(--accent)",
+                    fontWeight: 600,
+                  }}
+                >
+                  This Device
+                </span>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "8px 0 0" }}>
+            Devices signed into your NocturaPDF account.
+          </p>
+        </section>
+
+        {/* ── Log Out ──────────────────────────────────────────────── */}
+        <section style={{ marginBottom: 32 }}>
+          <h2 style={sectionTitleStyle}>Session</h2>
+          <button
+            onClick={handleLogOut}
+            style={{
+              width: "100%",
               padding: "12px 24px",
               fontSize: 15,
               fontWeight: 600,
               borderRadius: 10,
-              border: "1px solid var(--accent)",
-              background: "var(--accent)",
-              color: "#fff",
-              cursor: savingPwd ? "default" : "pointer",
-              opacity: savingPwd ? 0.6 : 1,
+              border: "1px solid var(--border)",
+              background: "transparent",
+              color: "var(--text-h)",
+              cursor: "pointer",
             }}
           >
-            {savingPwd ? "Updating…" : "Change Password"}
+            Log Out
           </button>
-        </form>
+        </section>
 
-        {/* ── Log Out ──────────────────────────────────────────────── */}
-        <h2 style={sectionTitleStyle}>Session</h2>
+        {/* ── Delete Account ───────────────────────────────────────── */}
+        <section style={{ marginBottom: 32 }}>
+          <h2 style={{ ...sectionTitleStyle, color: "#d33" }}>Danger Zone</h2>
+          <div
+            style={{
+              padding: 20,
+              borderRadius: 12,
+              border: "1px solid #d33",
+              background: "rgba(221, 51, 51, 0.05)",
+            }}
+          >
+            <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 12px", lineHeight: 1.6 }}>
+              Deleting your account will permanently remove your profile, cloud
+              library, and all synced reading metadata. This action cannot be undone.
+            </p>
+            <input
+              type="text"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              style={inputStyle}
+              placeholder='Type "delete" to confirm'
+            />
+            {deleteError && <p style={errorStyle}>{deleteError}</p>}
+            <button
+              onClick={handleDeleteAccount}
+              disabled={deleting}
+              style={{
+                width: "100%",
+                marginTop: 12,
+                padding: "12px 24px",
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 10,
+                border: "1px solid #d33",
+                background: "#d33",
+                color: "#fff",
+                cursor: deleting ? "default" : "pointer",
+                opacity: deleting ? 0.6 : 1,
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete Account"}
+            </button>
+          </div>
+        </section>
+
+        {/* ── Back to Home ──────────────────────────────────────── */}
         <button
-          onClick={async () => { await signOut(); onNavigate("/"); }}
+          onClick={() => onNavigate("/app")}
           style={{
-            width: "100%",
-            padding: "12px 24px",
-            fontSize: 15,
-            fontWeight: 600,
-            borderRadius: 10,
+            padding: "10px 20px",
+            fontSize: 13,
+            fontWeight: 500,
+            borderRadius: 8,
             border: "1px solid var(--border)",
             background: "transparent",
             color: "var(--text-h)",
             cursor: "pointer",
           }}
         >
-          Log Out
+          ← Back to Home
         </button>
-
-        {/* ── Delete Account ───────────────────────────────────────── */}
-        <h2 style={{ ...sectionTitleStyle, color: "#d33" }}>Danger Zone</h2>
-        <div
-          style={{
-            padding: 20,
-            borderRadius: 12,
-            border: "1px solid #d33",
-            background: "rgba(221, 51, 51, 0.05)",
-          }}
-        >
-          <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 12px", lineHeight: 1.6 }}>
-            Deleting your account will permanently remove your profile, cloud
-            library, and all synced reading metadata. This action cannot be undone.
-          </p>
-          <input
-            type="text"
-            value={deleteConfirm}
-            onChange={(e) => setDeleteConfirm(e.target.value)}
-            style={inputStyle}
-            placeholder='Type "delete" to confirm'
-          />
-          {deleteError && <p style={errorStyle}>{deleteError}</p>}
-          <button
-            onClick={handleDeleteAccount}
-            disabled={deleting}
-            style={{
-              width: "100%",
-              marginTop: 12,
-              padding: "12px 24px",
-              fontSize: 15,
-              fontWeight: 600,
-              borderRadius: 10,
-              border: "1px solid #d33",
-              background: "#d33",
-              color: "#fff",
-              cursor: deleting ? "default" : "pointer",
-              opacity: deleting ? 0.6 : 1,
-            }}
-          >
-            {deleting ? "Deleting…" : "Delete Account"}
-          </button>
-        </div>
       </div>
-
-      <SiteFooter onNavigate={onNavigate} />
     </div>
   );
 }

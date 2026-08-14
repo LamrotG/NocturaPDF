@@ -156,6 +156,24 @@ export async function updatePassword(newPassword, oldPassword) {
 }
 
 /**
+ * Update the user's email address.
+ * Sends a confirmation email to the new address when required.
+ */
+export async function updateEmail(newEmail) {
+  if (!isSupabaseConfigured) return { error: "Supabase is not configured." };
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { error } = await supabase.auth.updateUser({
+    email: newEmail,
+    options: { emailRedirectTo: `${window.location.origin}/app` },
+  });
+  if (error) return { error: error.message };
+
+  return { error: null, needsVerification: true };
+}
+
+/**
  * Update the user's profile (name, avatar).
  */
 export async function updateProfile({ name, avatarUrl, avatarColor }) {

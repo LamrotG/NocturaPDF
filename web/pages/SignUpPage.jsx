@@ -49,13 +49,11 @@ function getQueryParams() {
   return {
     email: params.get("email") || "",
     password: params.get("password") || "",
-    fromReader: params.get("from") === "reader" || params.get("redirect") === "reader",
   };
 }
 
 export default function SignUpPage({ onNavigate }) {
   const prefill = getQueryParams();
-  const [fromReader] = useState(prefill.fromReader);
   const [name, setName] = useState("");
   const [email, setEmail] = useState(prefill.email);
   const [password, setPassword] = useState(prefill.password);

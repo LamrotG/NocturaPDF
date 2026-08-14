@@ -4,12 +4,12 @@ import { PlusIcon, CloudOffIcon, ListIcon, GridIcon, TrashIcon } from "../icons.
 import {
   getRecentDocuments,
   getLocalLibraryDocuments,
-  getCloudLibraryDocuments,
   removeFromLocalLibrary,
 } from "../../persistence/index.js";
 import { isOpfsSupported, readLocalPdf } from "../../services/opfsService.js";
 import { getRecentView, setRecentView } from "../../services/settingService.js";
 import { clearRecentFiles } from "../../services/recentFilesService.js";
+import { listCloudPdfs, downloadCloudPdf, uploadPdf } from "../../services/cloudStorageService.js";
 import HomeSidebar from "../layout/HomeSidebar.jsx";
 
 function formatBytes(bytes) {
@@ -266,24 +266,35 @@ export default function ReaderHome({
   const [recent, setRecent] = useState([]);
   const [localLibrary, setLocalLibrary] = useState([]);
   const [cloudLibrary, setCloudLibrary] = useState([]);
+  const [cloudFileInputRef] = React.useRef(null);
   const [opfsAvailable, setOpfsAvailable] = useState(false);
   const [viewMode, setViewMode] = useState(() => getRecentView());
   const [confirmClear, setConfirmClear] = useState(false);
+  const [uploadingCloud, setUploadingCloud] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [rec, local, cloud] = await Promise.all([
+      const [rec, local] = await Promise.all([
         getRecentDocuments(),
         getLocalLibraryDocuments(),
-        getCloudLibraryDocuments(),
       ]);
       setRecent(rec);
       setLocalLibrary(local);
-      setCloudLibrary(cloud);
     } catch {
       // IndexedDB unavailable — show empty sections.
     }
-  }, []);
+    // Cloud files come live from Supabase when signed in.
+    if (isSignedIn) {
+      try {
+        const cloud = await listCloudPdfs();
+        setCloudLibrary(cloud && !cloud.error ? cloud : []);
+      } catch {
+        setCloudLibrary([]);
+      }
+    } else {
+      setCloudLibrary([]);
+    }
+  }, [isSignedIn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -307,10 +318,39 @@ export default function ReaderHome({
           // Fall through to file picker.
         }
       }
+      // Cloud documents carry a Supabase row id — download + open directly.
+      if (doc.libraryType === "cloud" || (doc.storage_path && !doc.localKey)) {
+        try {
+          const file = await downloadCloudPdf(doc.id || doc.pdf_id);
+          if (file && !file.error) {
+            onOpenDocument(file, { ...doc, libraryType: "cloud" });
+            return;
+          }
+        } catch {
+          // Fall through to file picker.
+        }
+        onOpenFile();
+        return;
+      }
       onOpenFile();
     },
     [onOpenDocument, onOpenFile]
   );
+
+  const handleUploadCloud = async (e) => {
+    const files = e.target.files;
+    e.target.value = "";
+    if (!files?.length) return;
+    setUploadingCloud(true);
+    try {
+      for (const file of Array.from(files)) {
+        await uploadPdf(file);
+      }
+      await refresh();
+    } finally {
+      setUploadingCloud(false);
+    }
+  };
 
   const handleRemoveFromLibrary = useCallback(
     async (doc) => {
@@ -551,38 +591,26 @@ export default function ReaderHome({
 
           {/* ── Cloud Library view ───────────────────────────────── */}
           {activeView === "cloud" && (
-            <div
-              style={{
-                border: "1px dashed var(--border)",
-                borderRadius: 12,
-                padding: "32px 24px",
-                textAlign: "center",
-                color: "var(--text-secondary)",
-                fontSize: 14,
-              }}
-            >
-              <div style={{ marginBottom: 12, color: "var(--text-secondary)" }}>
-                <Cloud size={40} />
-              </div>
-              {isSignedIn ? (
-                <>
+            <div>
+              {!isSignedIn ? (
+                <div
+                  style={{
+                    border: "1px dashed var(--border)",
+                    borderRadius: 12,
+                    padding: "32px 24px",
+                    textAlign: "center",
+                    color: "var(--text-secondary)",
+                    fontSize: 14,
+                  }}
+                >
+                  <div style={{ marginBottom: 12, color: "var(--text-secondary)" }}>
+                    <Cloud size={40} />
+                  </div>
                   <p style={{ margin: "0 0 8px", fontWeight: 500, color: "var(--text-h)" }}>
                     Cloud Library
                   </p>
                   <p style={{ margin: "0 0 16px", fontSize: 13 }}>
-                    {cloudLibrary.length > 0
-                      ? `${cloudLibrary.length} document${cloudLibrary.length > 1 ? "s" : ""} in your cloud library.`
-                      : "No documents in your cloud library yet."}
-                  </p>
-                  {cloudLibrary.length > 0 && renderDocs(cloudLibrary, false)}
-                </>
-              ) : (
-                <>
-                  <p style={{ margin: "0 0 8px", fontWeight: 500, color: "var(--text-h)" }}>
-                    Cloud sync is not connected
-                  </p>
-                  <p style={{ margin: "0 0 16px", fontSize: 13 }}>
-                    Sign in to sync your documents across devices.
+                    Sign in to sync and access your documents anywhere.
                   </p>
                   <button
                     onClick={onSignIn}
@@ -600,8 +628,51 @@ export default function ReaderHome({
                       cursor: "pointer",
                     }}
                   >
-                    Sign in / Connect to Cloud
+                    Sign In
                   </button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <button
+                      onClick={() => cloudFileInputRef.current?.click()}
+                      disabled={uploadingCloud}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "10px 20px",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        borderRadius: 10,
+                        border: "1px solid var(--accent)",
+                        background: "var(--accent)",
+                        color: "#fff",
+                        cursor: uploadingCloud ? "default" : "pointer",
+                        opacity: uploadingCloud ? 0.6 : 1,
+                      }}
+                    >
+                      <PlusIcon size={16} />
+                      {uploadingCloud ? "Uploading…" : "Upload PDF"}
+                    </button>
+                    <input
+                      ref={cloudFileInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      multiple
+                      onChange={handleUploadCloud}
+                      style={{ display: "none" }}
+                    />
+                    <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "8px 0 0" }}>
+                      Your files are saved to your NocturaPDF cloud account.
+                    </p>
+                  </div>
+
+                  {cloudLibrary.length === 0 ? (
+                    <EmptySection message="No files on cloud." />
+                  ) : (
+                    renderDocs(cloudLibrary, false)
+                  )}
                 </>
               )}
             </div>

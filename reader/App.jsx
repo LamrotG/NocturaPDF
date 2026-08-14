@@ -7,7 +7,8 @@ import { useKeyboard } from "./hooks/useKeyboard.js";
 import { useRoute, isStandalonePwa } from "./hooks/useRoute.js";
 import { themeToCssVars } from "./utils/themeCssVars.js";
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./utils/constants.js";
-import { recordDocumentOpen, createDebouncedPositionSaver } from "./persistence/index.js";
+import { recordDocumentOpen, createDebouncedPositionSaver, getRecentDocuments, getDocument } from "./persistence/index.js";
+import { clearRecentFiles } from "./services/recentFilesService.js";
 import TopAppBar from "./components/layout/TopAppBar.jsx";
 import SecondaryToolbar from "./components/layout/SecondaryToolbar.jsx";
 import PdfViewer from "./components/reader/PdfViewer.jsx";
@@ -77,6 +78,22 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTool, setActiveTool] = useState("select");
+  const [recentFiles, setRecentFiles] = useState([]);
+
+  // Load recent documents (IndexedDB) for the app menu's "Open Recent".
+  useEffect(() => {
+    let cancelled = false;
+    getRecentDocuments()
+      .then((rec) => {
+        if (!cancelled) setRecentFiles(rec);
+      })
+      .catch(() => {
+        // IndexedDB unavailable — leave the menu empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Dialog state
   const [showProperties, setShowProperties] = useState(false);
@@ -136,18 +153,50 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
 
   const handleOpenFile = useCallback(
     async (file, existingDoc) => {
+      // Freshly opened files always start on the Original theme.
+      setColorModeId("off");
       // Open the tab immediately so the UI responds fast.
       openTab(file, file.name, existingDoc?.id || null, existingDoc?.readingPosition || null);
       if (showHomeView) {
         onNavigateReader?.();
       }
     },
-    [openTab, showHomeView, onNavigateReader]
+    [openTab, showHomeView, onNavigateReader, setColorModeId]
   );
 
   const handleNavigateToReader = useCallback(() => {
     onNavigateReader?.();
   }, [onNavigateReader]);
+
+  // Home button/menu: flush pending reading positions before leaving the reader.
+  const handleGoHome = useCallback(() => {
+    positionSaverRef.current?.flushNow();
+    onGoHome?.();
+  }, [onGoHome]);
+
+  // "Open Recent" from the app menu — reopens an OPFS local-file directly,
+  // otherwise falls back to the file picker.
+  const handleOpenRecent = useCallback(
+    async (doc) => {
+      if (doc?.libraryType === "local" && doc?.localKey) {
+        try {
+          const { readLocalPdf } = await import("./services/opfsService.js");
+          const file = await readLocalPdf(doc.localKey, doc.filename);
+          handleOpenFile(file, doc);
+          return;
+        } catch {
+          // Fall through to the file picker.
+        }
+      }
+      handleOpenFileDialog();
+    },
+    [handleOpenFile, handleOpenFileDialog]
+  );
+
+  const handleClearRecent = useCallback(() => {
+    clearRecentFiles();
+    setRecentFiles([]);
+  }, []);
 
   const handleSelectTab = useCallback(
     (id) => {
@@ -237,9 +286,23 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
           zoom: zoomFactor,
           rotation,
         });
+        // Keep the open tab's reading position in sync so switching between
+        // already-open tabs restores it immediately (no IndexedDB round-trip).
+        const tab = activeTabRef.current;
+        if (tab?.id) {
+          updateTab(tab.id, {
+            readingPosition: {
+              page: currentPage,
+              x: 0,
+              y,
+              zoom: zoomFactor,
+              rotation,
+            },
+          });
+        }
       }
     },
-    [documentId, currentPage, zoomFactor, rotation]
+    [documentId, currentPage, zoomFactor, rotation, updateTab]
   );
 
   const handleJumpToPage = useCallback((page) => {
@@ -324,7 +387,6 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
     try {
       // If the file came from the Local Library (OPFS), write it back.
       const { saveLocalPdf } = await import("./services/opfsService.js");
-      const { getDocument } = await import("./persistence/index.js");
       const doc = activeTab.documentId ? await getDocument(activeTab.documentId) : null;
       if (doc?.localKey) {
         // Save back to OPFS
@@ -483,13 +545,13 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
             onSelectTab={handleSelectTab}
             onCloseTab={handleRequestCloseTab}
             onAddTab={handleOpenFileDialog}
-            onGoHome={onGoHome}
+            onGoHome={handleGoHome}
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
             hasDoc={hasDoc}
-            recentFiles={[]}
-            onOpenRecent={() => {}}
-            onClearRecent={() => {}}
+            recentFiles={recentFiles}
+            onOpenRecent={handleOpenRecent}
+            onClearRecent={handleClearRecent}
             onSave={handleSave}
             onSaveAs={handleSaveAs}
             onPrint={handlePrint}
@@ -714,50 +776,28 @@ function AppRoot() {
   const effectivePath = standalone && path === "/" ? "/app" : path;
 
   // ── Reader routes ────────────────────────────────────────────────────
-  if (effectivePath.startsWith("/app")) {
-    return (
-      <PdfColorModeProvider>
-        <AppStoreProvider>
-          <Shell
-            showHomeView={false}
-            onGoHome={() => navigate("/app")}
-            onNavigateReader={() => navigate("/app")}
-            onNavigate={navigate}
-          />
-        </AppStoreProvider>
-      </PdfColorModeProvider>
-    );
-  }
+  // /app  = Home dashboard (Recents, Local, Cloud, Settings, Profile).
+  // /reader = the PDF viewer; Home/Menu return to /app.
+  // /settings, /profile = reader chrome with the corresponding page.
+  const isReaderApp =
+    effectivePath.startsWith("/app") ||
+    effectivePath.startsWith("/reader") ||
+    effectivePath.startsWith("/settings") ||
+    effectivePath.startsWith("/profile");
 
-  if (effectivePath.startsWith("/settings")) {
+  if (isReaderApp) {
+    const showHomeView = effectivePath.startsWith("/app");
+    const showSettingsView = effectivePath.startsWith("/settings");
+    const showProfileView = effectivePath.startsWith("/profile");
     return (
-      <PdfColorModeProvider>
-        <AppStoreProvider>
-          <Shell
-            showSettingsView={true}
-            showHomeView={true}
-            onGoHome={() => navigate("/app")}
-            onNavigateReader={() => navigate("/app")}
-            onNavigate={navigate}
-          />
-        </AppStoreProvider>
-      </PdfColorModeProvider>
-    );
-  }
-
-  if (effectivePath.startsWith("/profile")) {
-    return (
-      <PdfColorModeProvider>
-        <AppStoreProvider>
-          <Shell
-            showHomeView={true}
-            showProfileView={true}
-            onGoHome={() => navigate("/app")}
-            onNavigateReader={() => navigate("/app")}
-            onNavigate={navigate}
-          />
-        </AppStoreProvider>
-      </PdfColorModeProvider>
+      <Shell
+        showHomeView={showHomeView}
+        showSettingsView={showSettingsView}
+        showProfileView={showProfileView}
+        onGoHome={() => navigate("/app")}
+        onNavigateReader={() => navigate("/reader")}
+        onNavigate={navigate}
+      />
     );
   }
 
@@ -825,7 +865,11 @@ export default function App() {
   return (
     <UiThemeProvider>
       <AuthProvider>
-        <AppRoot />
+        <PdfColorModeProvider>
+          <AppStoreProvider>
+            <AppRoot />
+          </AppStoreProvider>
+        </PdfColorModeProvider>
       </AuthProvider>
     </UiThemeProvider>
   );
