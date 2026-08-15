@@ -866,9 +866,7 @@ export default function App() {
     <UiThemeProvider>
       <AuthProvider>
         <PdfColorModeProvider>
-          <AppStoreProvider>
-            <AppRoot />
-          </AppStoreProvider>
+          <AppRoot />
         </PdfColorModeProvider>
       </AuthProvider>
     </UiThemeProvider>
