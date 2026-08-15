@@ -865,9 +865,11 @@ export default function App() {
   return (
     <UiThemeProvider>
       <AuthProvider>
-        <PdfColorModeProvider>
-          <AppRoot />
-        </PdfColorModeProvider>
+        <AppStoreProvider>
+          <PdfColorModeProvider>
+            <AppRoot />
+          </PdfColorModeProvider>
+        </AppStoreProvider>
       </AuthProvider>
     </UiThemeProvider>
   );
