@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
+   build: {
+    sourcemap: true,
+  },
   // Relative asset paths so the built dist/index.html works when loaded via
   // file://, not just from a server root.
   base: "./",
