@@ -174,6 +174,11 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
     onGoHome?.();
   }, [onGoHome]);
 
+  // Open file dialog — PWA uses the HTML file input (no Electron native dialog).
+  const handleOpenFileDialog = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
   // "Open Recent" from the app menu — reopens an OPFS local-file directly,
   // otherwise falls back to the file picker.
   const handleOpenRecent = useCallback(
@@ -209,11 +214,6 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
     },
     [setActiveTab, showHomeView, handleNavigateToReader]
   );
-
-  // Open file dialog — PWA uses the HTML file input (no Electron native dialog).
-  const handleOpenFileDialog = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
 
   const handleFileInputChange = (e) => {
     const files = e.target.files;

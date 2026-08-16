@@ -15,12 +15,14 @@
  *   OPFS           → local PDF binaries
  */
 
-const CACHE_VERSION = "nocturapdf-v2";
+const CACHE_VERSION = "nocturapdf-v3";
 const APP_SHELL_CACHE = `${CACHE_VERSION}-shell`;
 
+// Only static files that actually exist on disk. Client-side routes like
+// /app are handled by the navigation fallback below — pre-caching them
+// causes a 404 during install.
 const APP_SHELL_PATHS = [
   "/",
-  "/app",
   "/index.html",
   "/manifest.webmanifest",
   "/favicon.svg",
@@ -52,6 +54,14 @@ function isAppShellRequest(request) {
 // Any same-origin navigation (SPA route) falls back to cached index.html.
 function isNavigationRequest(request) {
   return request.mode === "navigate";
+}
+
+// Always return a valid Response — never undefined — so the fetch event
+// listener never leaves the message channel hanging.
+function fallbackResponse() {
+  return caches.match("/index.html").then(
+    (cached) => cached || Response.error()
+  );
 }
 
 self.addEventListener("install", (event) => {
@@ -117,13 +127,9 @@ self.addEventListener("fetch", (event) => {
           }
           // Server returned an error (404, 500, etc.) — serve the SPA shell
           // so the client-side router can handle the route.
-          return caches.match("/index.html").then(
-            (cached) => cached || Response.error()
-          );
+          return fallbackResponse();
         })
-        .catch(() =>
-          caches.match(request).then((cached) => cached || caches.match("/index.html"))
-        )
+        .catch(() => fallbackResponse())
     );
     return;
   }
@@ -132,7 +138,9 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     caches.match(request).then((cached) => {
-      const fetchPromise = fetch(request)
+      if (cached) return cached;
+
+      return fetch(request)
         .then((response) => {
           // Only cache valid responses of the same origin.
           if (response && response.ok && url.origin === location.origin) {
@@ -141,9 +149,7 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => cached);
-
-      return cached || fetchPromise;
+        .catch(() => fallbackResponse());
     })
   );
 });
