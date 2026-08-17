@@ -266,7 +266,7 @@ export default function ReaderHome({
   const [recent, setRecent] = useState([]);
   const [localLibrary, setLocalLibrary] = useState([]);
   const [cloudLibrary, setCloudLibrary] = useState([]);
-  const [cloudFileInputRef] = React.useRef(null);
+  const cloudFileInputRef = React.useRef(null);
   const [opfsAvailable, setOpfsAvailable] = useState(false);
   const [viewMode, setViewMode] = useState(() => getRecentView());
   const [confirmClear, setConfirmClear] = useState(false);
