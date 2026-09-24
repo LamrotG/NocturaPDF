@@ -9,6 +9,23 @@ function uuid() {
     : `ann-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+// Pages render stored highlights from IndexedDB (see PageCanvas), so every
+// mutation broadcasts a lightweight event it can refetch on. This keeps the
+// overlay live without new App state or prop-drilling a refresh counter, and
+// every existing caller benefits automatically.
+export const ANNOTATIONS_CHANGED_EVENT = "noctura:annotations-changed";
+
+function notifyAnnotationsChanged(documentId, page = null, type = null) {
+  if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(ANNOTATIONS_CHANGED_EVENT, { detail: { documentId, page, type } })
+    );
+  } catch {
+    // DOM events unavailable — ignore.
+  }
+}
+
 /**
  * Create a highlight annotation.
  */
@@ -27,6 +44,7 @@ export async function createHighlight({ documentId, page, text, rects, color = "
     updatedAt: now,
   };
   await putOne("annotations", ann);
+  notifyAnnotationsChanged(documentId, page, "highlight");
   return ann;
 }
 
@@ -66,6 +84,7 @@ export async function createNote({ documentId, page, text, note, rects = [] }) {
     updatedAt: now,
   };
   await putOne("annotations", ann);
+  notifyAnnotationsChanged(documentId, page, "note");
   return ann;
 }
 
@@ -74,11 +93,14 @@ export async function updateAnnotation(id, patch) {
   if (!existing) return null;
   const updated = { ...existing, ...patch, updatedAt: Date.now() };
   await putOne("annotations", updated);
+  notifyAnnotationsChanged(updated.documentId, updated.page, updated.type);
   return updated;
 }
 
 export async function deleteAnnotation(id) {
-  return tx("annotations", "readwrite", (store) => store.delete(id));
+  const existing = (await getOne("annotations", id)) || null;
+  await tx("annotations", "readwrite", (store) => store.delete(id));
+  if (existing) notifyAnnotationsChanged(existing.documentId, existing.page, existing.type);
 }
 
 /**

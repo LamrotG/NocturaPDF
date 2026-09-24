@@ -5,10 +5,10 @@ import {
   getRecentDocuments,
   getLocalLibraryDocuments,
   removeFromLocalLibrary,
+  clearRecentHistory,
 } from "../../persistence/index.js";
 import { isOpfsSupported, readLocalPdf } from "../../services/opfsService.js";
 import { getRecentView, setRecentView } from "../../services/settingService.js";
-import { clearRecentFiles } from "../../services/recentFilesService.js";
 import { listCloudPdfs, downloadCloudPdf, uploadPdf } from "../../services/cloudStorageService.js";
 import HomeSidebar from "../layout/HomeSidebar.jsx";
 
@@ -309,13 +309,16 @@ export default function ReaderHome({
 
   const handleOpenDocument = useCallback(
     async (doc) => {
-      if (doc.libraryType === "local" && doc.localKey) {
+      // Every recorded open mirrors its binary into OPFS (content-hash keyed),
+      // so any document with a localKey reopens directly — offline-friendly
+      // and without needing the original File handle.
+      if (doc.localKey) {
         try {
           const file = await readLocalPdf(doc.localKey, doc.filename);
           onOpenDocument(file, doc);
           return;
         } catch {
-          // Fall through to file picker.
+          // Fall through to the cloud/file-picker paths.
         }
       }
       // Cloud documents carry a Supabase row id — download + open directly.
@@ -372,8 +375,9 @@ export default function ReaderHome({
       return;
     }
     setConfirmClear(false);
-    // Clear recent from localStorage (recentFilesService).
-    clearRecentFiles();
+    // Clear the real Recents history (IndexedDB): drops lastOpened so
+    // documents leave Recents while reading positions/library data persist.
+    clearRecentHistory().catch(() => {});
     setRecent([]);
   }, [confirmClear]);
 

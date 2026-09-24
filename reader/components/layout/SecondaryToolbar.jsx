@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import IconButton from "../IconButton.jsx";
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "../../utils/constants.js";
 import {
@@ -29,6 +29,19 @@ export default function SecondaryToolbar({
 }) {
   const [pageInput, setPageInput] = useState("");
   const [themeOpen, setThemeOpen] = useState(false);
+  const themeMenuRef = useRef(null);
+
+  // Close the theme dropdown when clicking anywhere outside it.
+  useEffect(() => {
+    if (!themeOpen) return undefined;
+    const onPointerDown = (e) => {
+      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target)) {
+        setThemeOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [themeOpen]);
 
   const zoomIn = () => {
     onFitModeChange("custom");
@@ -159,7 +172,7 @@ export default function SecondaryToolbar({
       {/* Right side: PDF theme selector */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
         <span style={{ fontSize: 12, color: "var(--text)", opacity: 0.85 }}>Theme</span>
-        <div style={{ position: "relative" }}>
+        <div ref={themeMenuRef} style={{ position: "relative" }}>
           <button
             onClick={() => setThemeOpen((v) => !v)}
             style={{

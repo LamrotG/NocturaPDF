@@ -15,7 +15,7 @@
  *   OPFS           → local PDF binaries
  */
 
-const CACHE_VERSION = "nocturapdf-v3";
+const CACHE_VERSION = "nocturapdf-v4";
 const APP_SHELL_CACHE = `${CACHE_VERSION}-shell`;
 
 // Only static files that actually exist on disk. Client-side routes like
@@ -90,6 +90,13 @@ self.addEventListener("activate", (event) => {
       )
   );
   self.clients.claim();
+});
+
+// Allow the page to activate a newly downloaded worker immediately
+// (reader/main.jsx posts SKIP_WAITING when it detects an update). Without
+// this handler a waiting worker would only activate after every tab closed.
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("fetch", (event) => {

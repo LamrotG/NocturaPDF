@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createHighlight, createNote } from "../../persistence/index.js";
+import { collectSelectionPageRects } from "../../utils/selectionRects.js";
 
 /**
  * Contextual actions for text selected inside the PDF.
@@ -57,7 +58,7 @@ export default function TextSelectionActions({
 
         const rect = range.getBoundingClientRect();
         const containerRect = el.getBoundingClientRect();
-        setSelection({ text });
+        setSelection({ text, range });
         setPosition({
           top: rect.top - containerRect.top + rect.height + 8,
           left: rect.left - containerRect.left + rect.width / 2,
@@ -101,31 +102,43 @@ export default function TextSelectionActions({
   }, [selection, onSelectionChange]);
 
   const handleHighlight = useCallback(async () => {
-    if (!selection || !documentId) return;
+    if (!selection?.range || !documentId) return;
     try {
-      await createHighlight({
-        documentId,
-        page: currentPage,
-        text: selection.text,
-        rects: [],
-      });
+      // Geometry is computed from the live range at click time (normalized to
+      // each touched page), so highlights land exactly on the selected text —
+      // including selections that span pages.
+      const containerEl = containerRef?.current;
+      const groups = collectSelectionPageRects(selection.range, containerEl);
+      if (!groups.length) return; // no geometry on a real page — write nothing
+      for (const { page, rects } of groups) {
+        await createHighlight({
+          documentId,
+          page,
+          text: selection.text,
+          rects,
+        });
+      }
     } catch {
       // Persistence failed — ignore.
     }
+    try { window.getSelection()?.removeAllRanges(); } catch { /* ignore */ }
     setSelection(null);
     setPosition(null);
     onSelectionChange?.(null);
-  }, [selection, documentId, currentPage, onSelectionChange]);
+  }, [selection, documentId, containerRef, onSelectionChange]);
 
   const handleAddNote = useCallback(async () => {
-    if (!selection || !documentId) return;
+    if (!selection?.range || !documentId) return;
     try {
+      const containerEl = containerRef?.current;
+      const groups = collectSelectionPageRects(selection.range, containerEl);
+      const primary = groups[0] || null;
       await createNote({
         documentId,
-        page: currentPage,
+        page: primary ? primary.page : currentPage,
         text: selection.text,
         note: noteText,
-        rects: [],
+        rects: primary ? primary.rects : [],
       });
     } catch {
       // Persistence failed — ignore.
@@ -135,7 +148,7 @@ export default function TextSelectionActions({
     setSelection(null);
     setPosition(null);
     onSelectionChange?.(null);
-  }, [selection, documentId, currentPage, noteText, onSelectionChange]);
+  }, [selection, documentId, currentPage, noteText, containerRef, onSelectionChange]);
 
   const handleSearch = useCallback(() => {
     if (!selection) return;

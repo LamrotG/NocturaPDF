@@ -6,9 +6,9 @@ import { AuthProvider, useAuth } from "./hooks/useAuth.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import { useRoute, isStandalonePwa } from "./hooks/useRoute.js";
 import { themeToCssVars } from "./utils/themeCssVars.js";
-import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./utils/constants.js";
-import { recordDocumentOpen, createDebouncedPositionSaver, getRecentDocuments, getDocument } from "./persistence/index.js";
-import { clearRecentFiles } from "./services/recentFilesService.js";
+import { MAX_SCALE, MIN_SCALE, PDF_COLOR_MODES, ZOOM_STEP } from "./utils/constants.js";
+import { getThemeLut } from "./features/darkmode/darkmodeEngine.js";
+import { recordDocumentOpen, createDebouncedPositionSaver, getRecentDocuments, getDocument, clearRecentHistory } from "./persistence/index.js";
 import TopAppBar from "./components/layout/TopAppBar.jsx";
 import SecondaryToolbar from "./components/layout/SecondaryToolbar.jsx";
 import PdfViewer from "./components/reader/PdfViewer.jsx";
@@ -53,7 +53,7 @@ async function savePdfToFile(file, suggestedName) {
 
 function Shell({ showHomeView = false, showSettingsView = false, showProfileView = false, onGoHome, onNavigateReader, onNavigate }) {
   const { resolvedTheme } = useUiTheme();
-  const { colorModeId, setColorModeId, colorMode, lut, colorModes } = usePdfColorMode();
+  const { colorModeId: defaultColorModeId, setDefaultColorModeId, colorModes } = usePdfColorMode();
   const { tabs, activeTabId, activeTab, openTab, closeTab, setActiveTab, updateTab } = useAppStore();
   const { isSignedIn, profile } = useAuth();
 
@@ -80,20 +80,19 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
   const [activeTool, setActiveTool] = useState("select");
   const [recentFiles, setRecentFiles] = useState([]);
 
-  // Load recent documents (IndexedDB) for the app menu's "Open Recent".
-  useEffect(() => {
-    let cancelled = false;
+  // Recent documents (IndexedDB) power the app menu's "Open Recent" and are
+  // refreshed whenever a document is opened so the menu never goes stale.
+  const refreshRecentFiles = useCallback(() => {
     getRecentDocuments()
-      .then((rec) => {
-        if (!cancelled) setRecentFiles(rec);
-      })
+      .then((rec) => setRecentFiles(rec || []))
       .catch(() => {
-        // IndexedDB unavailable — leave the menu empty.
+        // IndexedDB unavailable — leave the menu as-is.
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    refreshRecentFiles();
+  }, [refreshRecentFiles]);
 
   // Dialog state
   const [showProperties, setShowProperties] = useState(false);
@@ -129,6 +128,25 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
     setSearchOpen(false);
   }
 
+  // Per-tab PDF theme: the active theme is the tab's own choice when it has
+  // one, otherwise the persisted app default. Changing the theme only writes
+  // to the active tab, so other open files keep their own theme.
+  const colorModeId = activeTab?.colorModeId || defaultColorModeId;
+  const colorMode = PDF_COLOR_MODES[colorModeId] || PDF_COLOR_MODES.off;
+  const lut = useMemo(() => getThemeLut(colorMode), [colorMode]);
+
+  const handleColorModeChange = useCallback(
+    (id) => {
+      // Scope the new theme to the active tab only. The id is also stored as
+      // the app default so newly opened files start with the latest choice.
+      if (activeTabId) {
+        updateTab(activeTabId, { colorModeId: id });
+      }
+      setDefaultColorModeId(id);
+    },
+    [activeTabId, updateTab, setDefaultColorModeId]
+  );
+
   // Mirrors the real browser fullscreen state — Esc can exit native
   // fullscreen outside our own toggle handler, so this can't be a plain
   // toggle boolean, it has to stay synced to `document.fullscreenElement`.
@@ -153,15 +171,14 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
 
   const handleOpenFile = useCallback(
     async (file, existingDoc) => {
-      // Freshly opened files always start on the Original theme.
-      setColorModeId("off");
-      // Open the tab immediately so the UI responds fast.
-      openTab(file, file.name, existingDoc?.id || null, existingDoc?.readingPosition || null);
+      // Freshly opened files always start on the Original theme — scoped to
+      // the new tab only; already-open tabs keep their own theme.
+      openTab(file, file.name, existingDoc?.id || null, existingDoc?.readingPosition || null, "off");
       if (showHomeView) {
         onNavigateReader?.();
       }
     },
-    [openTab, showHomeView, onNavigateReader, setColorModeId]
+    [openTab, showHomeView, onNavigateReader]
   );
 
   const handleNavigateToReader = useCallback(() => {
@@ -179,11 +196,12 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
     fileInputRef.current?.click();
   }, []);
 
-  // "Open Recent" from the app menu — reopens an OPFS local-file directly,
-  // otherwise falls back to the file picker.
+  // "Open Recent" from the app menu — every recorded open mirrors its binary
+  // into OPFS, so recents reopen directly; only OPFS failures fall back to
+  // the file picker.
   const handleOpenRecent = useCallback(
     async (doc) => {
-      if (doc?.libraryType === "local" && doc?.localKey) {
+      if (doc?.localKey) {
         try {
           const { readLocalPdf } = await import("./services/opfsService.js");
           const file = await readLocalPdf(doc.localKey, doc.filename);
@@ -199,8 +217,11 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
   );
 
   const handleClearRecent = useCallback(() => {
-    clearRecentFiles();
-    setRecentFiles([]);
+    // Drop lastOpened on every document — they leave the Recents lists
+    // (menu + home) while reading positions and library data stay intact.
+    clearRecentHistory()
+      .catch(() => {})
+      .finally(() => setRecentFiles([]));
   }, []);
 
   const handleSelectTab = useCallback(
@@ -250,9 +271,13 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
           const record = await recordDocumentOpen(tab.file, pdfDocument);
           setDocumentId(record.id);
           updateTab(tab.id, { documentId: record.id });
+          // The Recents menu must reflect this open immediately.
+          refreshRecentFiles();
 
-          // Restore reading position if we have one.
-          const pos = record.readingPosition;
+          // The tab's live in-memory position is the exact pause point (the
+          // debounced IndexedDB write can lag behind or miss it entirely);
+          // fall back to the persisted record for a fresh session.
+          const pos = tab.readingPosition || record.readingPosition;
           if (pos) {
             setInitialScrollPosition(pos);
             if (pos.zoom) {
@@ -272,8 +297,9 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
         }
       }
     },
-    // Stable identity: only updateTab is a real dep; activeTab is read via a ref.
-    [updateTab]
+    // Stable identity: only updateTab/refreshRecentFiles are real deps;
+    // activeTab is read via a ref.
+    [updateTab, refreshRecentFiles]
   );
 
   const handleScrollPositionChange = useCallback(
@@ -586,7 +612,7 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
             onOpenSearch={handleOpenSearch}
             colorModes={colorModes}
             colorModeId={colorModeId}
-            onColorModeChange={setColorModeId}
+            onColorModeChange={handleColorModeChange}
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
           />
@@ -611,6 +637,7 @@ function Shell({ showHomeView = false, showSettingsView = false, showProfileView
             <PdfViewer
               key={activeTab.id}
               file={activeTab.file}
+              documentId={documentId}
               colorMode={colorMode}
               lut={lut}
               zoomFactor={zoomFactor}

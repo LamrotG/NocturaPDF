@@ -115,6 +115,10 @@ export async function removeFromLocalLibrary(id) {
 
 /**
  * Open + record a document: resolves identity, bumps lastOpened, persists.
+ * Also mirrors the binary into OPFS when possible so the document can be
+ * reopened from Recents without the original File handle (a browser File
+ * object dies with the page). OPFS paths are content-hash keyed, so this is
+ * deduped: once localKey exists the same bytes are already stored.
  */
 export async function recordDocumentOpen(file, pdfDoc) {
   const record = await resolveDocumentRecord(file, pdfDoc);
@@ -129,6 +133,35 @@ export async function recordDocumentOpen(file, pdfDoc) {
     lastOpened: now,
   };
 
+  // Mirror the binary into OPFS so "Recents" can reopen the actual document
+  // later — but OFF the open path's critical path: a full-file read + SHA-256
+  // here would stall opening by seconds on large PDFs. Fire-and-forget: the
+  // record is written first without localKey, then patched once the copy
+  // lands (re-read to preserve any concurrent fields like readingPosition).
+  if (!updated.localKey) {
+    (async () => {
+      try {
+        const { saveLocalPdf } = await import("../services/opfsService.js");
+        const { key } = await saveLocalPdf(file);
+        const stored = await getOne("documents", updated.id);
+        await putOne("documents", { ...(stored || updated), localKey: key });
+      } catch {
+        // OPFS unavailable — metadata-only entry; reopening will fall back
+        // to the file picker.
+      }
+    })();
+  }
+
   await upsertDocument(updated);
   return updated;
+}
+
+/**
+ * Clear the Recents list without destroying user data: drops lastOpened so
+ * documents leave Recents (which filters on it) while keeping reading
+ * positions, library membership, and metadata intact.
+ */
+export async function clearRecentHistory() {
+  const all = await getAllDocuments();
+  await Promise.all(all.map((doc) => upsertDocument({ ...doc, lastOpened: null })));
 }

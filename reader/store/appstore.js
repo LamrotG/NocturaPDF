@@ -17,6 +17,10 @@ function reducer(state, action) {
         name: action.name,
         documentId: action.documentId || null,
         readingPosition: action.readingPosition || null,
+        // Per-tab PDF theme: every document carries its own color mode so
+        // changing the theme in one tab never affects the others. null means
+        // "fall back to the app default" (resolved by the reader Shell).
+        colorModeId: action.colorModeId ?? null,
       };
       return { tabs: [...state.tabs, tab], activeTabId: tab.id };
     }
@@ -51,8 +55,8 @@ export function AppStoreProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, { tabs: [], activeTabId: null });
 
   const openTab = useCallback(
-    (file, name, documentId, readingPosition) =>
-      dispatch({ type: "OPEN_TAB", file, name, documentId, readingPosition }),
+    (file, name, documentId, readingPosition, colorModeId) =>
+      dispatch({ type: "OPEN_TAB", file, name, documentId, readingPosition, colorModeId }),
     []
   );
   const closeTab = useCallback((id) => dispatch({ type: "CLOSE_TAB", id }), []);

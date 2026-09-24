@@ -14,6 +14,7 @@ export {
   addToLocalLibrary,
   removeFromLocalLibrary,
   recordDocumentOpen,
+  clearRecentHistory,
   LIBRARY_TYPE,
 } from "./documentRepository.js";
 export { deriveFingerprint, resolveDocumentRecord } from "./documentIdentity.js";
@@ -30,4 +31,5 @@ export {
   deleteAnnotation,
   getDocumentAnnotations,
   getPageAnnotations,
+  ANNOTATIONS_CHANGED_EVENT,
 } from "./annotationRepository.js";

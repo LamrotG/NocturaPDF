@@ -18,6 +18,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // theme application live in ScrollContainer/PageCanvas.
 export default function PdfViewer({
   file,
+  documentId = null,
   colorMode,
   lut,
   zoomFactor = 1,
@@ -48,13 +49,19 @@ export default function PdfViewer({
   const onNumPagesChangeRef = useRef(onNumPagesChange);
   onNumPagesChangeRef.current = onNumPagesChange;
 
-  // Guards against calling getDocument() again when a load is already in
-  // flight (e.g. StrictMode dev double-mount or a spurious effect re-run) —
-  // avoids a second document creation that would destroy the first worker.
-  const loadInFlightRef = useRef(false);
+  // Monotonic token identifying the newest load request. StrictMode
+  // double-mounts and tab-driven re-renders both start loads; only the
+  // newest one may commit state, and older invocations always settle their
+  // own state instead of skipping it. (A boolean in-flight guard caused a
+  // permanently stuck loading spinner: the cancelled first mount set the
+  // flag, the second mount early-returned without loading, and nothing ever
+  // reset isLoading — the file appeared to "never open".)
+  const loadIdRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const myLoad = ++loadIdRef.current;
+    // A load is stale once a newer invocation has taken over.
+    const isStale = () => myLoad !== loadIdRef.current;
 
     async function loadPdf() {
       setError("");
@@ -66,12 +73,6 @@ export default function PdfViewer({
         return;
       }
 
-      // If a load is already in flight, don't start a second one — creating a
-      // second document would destroy the first worker mid-flight.
-      if (loadInFlightRef.current) {
-        return;
-      }
-      loadInFlightRef.current = true;
       setIsLoading(true);
 
       try {
@@ -92,12 +93,11 @@ export default function PdfViewer({
 
         const loadingTask = getDocument(src);
         const nextPdf = await loadingTask.promise;
-        if (cancelled) {
-          // StrictMode/dev mount churn or a file swap can cancel before the
-          // document resolves — release its worker so it never lingers as a
-          // stale port for a later getDocument() (which is what causes the
+        if (isStale()) {
+          // A newer load superseded this one — release its worker so no
+          // stale document/worker lingers (prevents
           // "Cannot read properties of null (reading 'sendWithPromise')"
-          // error in page.render()/getOptionalContentConfig()).
+          // in page.render()/getOptionalContentConfig()).
           try {
             nextPdf.destroy();
           } catch {
@@ -121,17 +121,21 @@ export default function PdfViewer({
         onNumPagesChangeRef.current?.(total);
         onDocumentLoadRef.current?.(nextPdf);
       } catch (e) {
-        if (!cancelled) setError(e?.message || "Failed to load PDF.");
+        if (!isStale()) setError(e?.message || "Failed to load PDF.");
       } finally {
-        loadInFlightRef.current = false;
-        if (!cancelled) setIsLoading(false);
+        // Only the newest load owns the loading state; stale invocations
+        // must not clear (or leave stuck) a newer load's spinner.
+        if (!isStale()) setIsLoading(false);
       }
     }
 
     loadPdf();
 
     return () => {
-      cancelled = true;
+      // Bumping the token on cleanup marks this invocation stale, so a load
+      // that resolves after unmount/file-swap discards its result instead of
+      // committing it.
+      loadIdRef.current += 1;
     };
     // Intentionally depend only on `file`: callback identity changes (from
     // App.jsx's tab store mutations) must NOT re-create / destroy the pdf.js
@@ -164,6 +168,7 @@ export default function PdfViewer({
         <ScrollContainer
           key={pdfDoc}
           pdfDoc={pdfDoc}
+          documentId={documentId}
           numPages={numPages}
           colorMode={colorMode}
           lut={lut}

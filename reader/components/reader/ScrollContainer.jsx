@@ -14,6 +14,7 @@ const COLUMN_MAX_WIDTH = 900;
 // (and their raw-pixel theme caches) alive at once.
 export default function ScrollContainer({
   pdfDoc,
+  documentId = null,
   numPages,
   colorMode,
   lut,
@@ -140,22 +141,27 @@ export default function ScrollContainer({
   }, [onScrollPositionChange]);
 
   // Restore initial scroll position (from persisted reading position).
+  // Page-anchored restore: unrendered virtualized pages are fixed-size
+  // placeholders, so scrollHeight is wrong until pages render — an absolute
+  // scrollTop fraction (the old approach) can land far from the target in
+  // long documents and fight the page-anchor scrollRequest from App.jsx.
+  // Anchoring to the page element is exact regardless of render state.
+  // Sub-page offset within the page is not restored (accepted tradeoff for
+  // exact page-level fidelity).
   useEffect(() => {
     if (initialRestoredRef.current || !initialScrollPosition) return;
-    const el = scrollRef.current;
+    const page = Math.min(Math.max(Number(initialScrollPosition.page) || 1, 1), numPages || 1);
+    const el = pageElsRef.current.get(page);
     if (!el) return;
 
-    // Wait for pages to render so scrollHeight is correct.
+    // Brief delay so the target page's layout has settled after mount.
     const timer = setTimeout(() => {
-      const max = el.scrollHeight - el.clientHeight;
-      if (max > 0) {
-        el.scrollTop = initialScrollPosition.y * max;
-      }
       initialRestoredRef.current = true;
-    }, 100);
+      el.scrollIntoView({ behavior: "auto", block: "start" });
+    }, 120);
 
     return () => clearTimeout(timer);
-  }, [initialScrollPosition]);
+  }, [initialScrollPosition, numPages]);
 
   // Imperative "jump to page" — Sidebar thumbnails/outline and the Toolbar's
   // page field drive this by passing a new { page, id } object each time
@@ -201,6 +207,7 @@ export default function ScrollContainer({
             <PageCanvas
               pdfDoc={pdfDoc}
               pageNumber={pageNumber}
+              documentId={documentId}
               containerWidth={availableWidth}
               containerHeight={containerHeight}
               zoomFactor={zoomFactor}

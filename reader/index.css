@@ -89,6 +89,16 @@ code {
   background: var(--code-bg);
 }
 
+/* Selectable PDF text layer (built by PageCanvas.renderTextLayer). The glyphs
+   themselves are transparent so the painted canvas shows through — only the
+   selection highlight is visible, so it must read clearly on the light AND
+   the dark reading themes. */
+.pdf-text-layer::selection,
+.pdf-text-layer ::selection {
+  background: rgba(25, 94, 99, 0.45);
+  color: transparent;
+}
+
 /* Print: hide all app chrome, show only the PDF canvas pages. */
 @media print {
   body * {

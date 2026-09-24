@@ -19,18 +19,23 @@ const PdfColorModeContext = createContext(null);
 export function PdfColorModeProvider({ children }) {
   const [colorModeId, setColorModeIdState] = useState(() => getPdfColorMode());
 
-  const setColorModeId = useCallback((id) => {
-    setColorModeIdState(id);
-    setPdfColorMode(id);
-  }, []);
-
   const colorMode = PDF_COLOR_MODES[colorModeId] || PDF_COLOR_MODES[DEFAULT_PDF_COLOR_MODE_ID];
   const lut = useMemo(() => getThemeLut(colorMode), [colorMode]);
   const colorModes = useMemo(() => PDF_COLOR_MODE_ORDER.map((id) => PDF_COLOR_MODES[id]), []);
 
+  // Persists the *default* color mode used by newly opened tabs/files. It
+  // never re-themes tabs that are already open — per-tab theming lives in the
+  // tab store (see appstore.js). `setColorModeId` is kept as an alias for
+  // backwards compatibility with existing call sites.
+  const setDefaultColorModeId = useCallback((id) => {
+    setColorModeIdState(id);
+    setPdfColorMode(id);
+  }, []);
+  const setColorModeId = setDefaultColorModeId;
+
   const value = useMemo(
-    () => ({ colorModeId, setColorModeId, colorMode, lut, colorModes }),
-    [colorModeId, setColorModeId, colorMode, lut, colorModes]
+    () => ({ colorModeId, setColorModeId, setDefaultColorModeId, colorMode, lut, colorModes }),
+    [colorModeId, setColorModeId, setDefaultColorModeId, colorMode, lut, colorModes]
   );
 
   return React.createElement(PdfColorModeContext.Provider, { value }, children);

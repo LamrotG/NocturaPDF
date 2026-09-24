@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { MousePointer2, Highlighter, Bookmark } from "lucide-react";
 import { createHighlight, createBookmark } from "../../persistence/index.js";
+import { collectSelectionPageRects } from "../../utils/selectionRects.js";
 
 const HIGHLIGHT_COLORS = [
   { id: "green", label: "Green", color: "#4caf50" },
@@ -83,16 +84,30 @@ export default function PdfToolsPanel({
   const handleHighlightColor = async (color) => {
     if (!documentId) return;
     try {
-      // Get current selection if any
+      // Highlights need real on-page geometry to render — the same live-range
+      // capture as the selection action bar. Without a selection on a real
+      // page there is nothing to draw, so write nothing (this also removes
+      // the old behaviour of persisting invisible "Highlight" records).
       const sel = window.getSelection();
-      const text = sel && !sel.isCollapsed ? sel.toString().trim() : "";
-      await createHighlight({
-        documentId,
-        page: currentPage,
-        text: text || "Highlight",
-        rects: [],
-        color,
-      });
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        setShowHighlightColors(false);
+        return;
+      }
+      const groups = collectSelectionPageRects(sel.getRangeAt(0), containerRef?.current);
+      if (!groups.length) {
+        setShowHighlightColors(false);
+        return;
+      }
+      const text = sel.toString().trim();
+      for (const { page, rects } of groups) {
+        await createHighlight({
+          documentId,
+          page,
+          text,
+          rects,
+          color,
+        });
+      }
     } catch {
       // ignore
     }
